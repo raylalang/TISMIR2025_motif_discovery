@@ -1,0 +1,3 @@
+algorithm, dataset, dataset_size, runtime, result_size
+siatechf(th=5), rand_patterns_1000.csv, 1000, 17.543145895004272, 46
+siatechf(th=5), rand_patterns_500.csv, 500, 4.449767827987671, 0
