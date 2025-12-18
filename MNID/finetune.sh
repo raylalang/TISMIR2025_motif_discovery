@@ -1,6 +1,11 @@
+# nohup bash ./finetune.sh > logs/finetune.log 2>&1 &
+
 export PYTHONPATH="."
 
-python3 MidiBERT/finetune_bps.py  --cuda_devices 0 --batch_size 8  --seed 2021 \
+python3 MidiBERT/finetune_bps.py \
+    --cuda_devices 0 \
+    --batch_size 8 \
+    --seed 2021 \
     --dict_file data_creation/prepare_data/dict/CP.pkl \
     --ckpt 'MidiBERT_pretrained.ckpt' \
     --output_dir './BPS_MNID_MI/' \
