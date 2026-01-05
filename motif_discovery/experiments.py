@@ -6,13 +6,14 @@ Created on Tue Feb  20  2023
 # import time
 import numpy as np
 np.bool = np.bool_
-import os, pickle
+import os, pickle, json
 import csv
 from os.path import join as jpath
 from os.path import isdir
 # import matplotlib.pyplot as plt
 import time
 import argparse
+from pathlib import Path
 
 import pretty_midi
 from SIA import *
@@ -145,7 +146,23 @@ def load_all_motives(filename_csv, filename_midi):
     print('max_duration', max_duration)
     return motives
 
-def run_one_data(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_indexes):
+def save_patterns(piece_id, patterns_est, save_dir):
+    if save_dir is None:
+        return
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    serializable = []
+    for motif in patterns_est:
+        occs = []
+        for occ in motif:
+            occs.append([[float(x[0]), int(x[1])] for x in occ])
+        serializable.append(occs)
+    payload = {"piece": piece_id, "patterns": serializable}
+    out_path = Path(save_dir) / f"{piece_id}.json"
+    with open(out_path, "w") as f:
+        json.dump(payload, f)
+
+
+def run_one_data(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_indexes, save_dir=None):
     for i in song_indexes:
         piece = str(i).zfill(2)
         print('piece', piece)
@@ -183,10 +200,12 @@ def run_one_data(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_
         print('thr P %.4f, R %.4f, F %.4f' % (P_thr, R_thr, F_thr))
         print('elapsed time, eval %.2f sec' % (time.time() - elp))
 
+        save_patterns(piece + "-1", patterns_est, save_dir)
+
         result_list[i-1] = [F_est, P_est, R_est, F_occ, P_occ, R_occ, F_thr, P_thr, R_thr
             , runtime_one, len(patterns_est), len(patterns_ref), avg_duration, patterns_est]
 
-def CSA(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
+def CSA(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     print('Run CSA algorithm')
 
     all_P_est, all_R_est, all_F_est = [], [], []
@@ -206,7 +225,7 @@ def CSA(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
     jobs = []
     for j in range(thread_num):
         p = multiprocessing.Process(target=run_one_data, args=(pruned_csv_note_dir, csv_label_dir, motif_midi_dir
-            , result_list, song_indexes_list[j]))
+            , result_list, song_indexes_list[j], save_dir))
         jobs.append(p)
         p.start()
 
@@ -280,7 +299,7 @@ def mtps_to_tecs(mtps, dataset):
     return tecs
 
 
-def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
+def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     print('******* SIATEC *******')
     all_P_est, all_R_est, all_F_est = [], [], []
     all_P_occ, all_R_occ, all_F_occ = [], [], []
@@ -315,6 +334,8 @@ def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
         patterns_est = [get_all_occurrences(tec) for tec in tecs if len(tec.get_translators())]
         print('len(patterns_est)', len(patterns_est))
         runtime = runtime + time.time() - elp
+
+        save_patterns(piece + "-1", patterns_est, save_dir)
 
         # Evaluation
         elp = time.time()
@@ -352,7 +373,7 @@ def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
 
     print('Runtime %.4f Averaged Runtime %.4f' % (runtime / 60, runtime / 1920))
 
-def run_one_data_SIATEC_CS(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_indexes):
+def run_one_data_SIATEC_CS(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_indexes, save_dir=None):
     for song_id in song_indexes:
         piece = str(song_id).zfill(2)
         print('piece', piece)
@@ -404,10 +425,12 @@ def run_one_data_SIATEC_CS(csv_note_dir, csv_label_dir, motif_midi_dir, result_l
         print('thr P %.4f, R %.4f, F %.4f' % (P_thr, R_thr, F_thr))
         print('elapsed time, eval %.2f sec' % (time.time() - elp))
 
+        save_patterns(piece + "-1", patterns_est, save_dir)
+
         result_list[song_id-1] = [F_est, P_est, R_est, F_occ, P_occ, R_occ, F_thr, P_thr, R_thr
             , runtime_one, len(patterns_est), len(patterns_ref)]
 
-def SIATEC_CS(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
+def SIATEC_CS(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     print('******* SIATEC_CS *******')
 
     all_P_est, all_R_est, all_F_est = [], [], []
@@ -426,7 +449,7 @@ def SIATEC_CS(pruned_csv_note_dir, csv_label_dir, motif_midi_dir):
     jobs = []
     for j in range(thread_num):
         p = multiprocessing.Process(target=run_one_data_SIATEC_CS, args=(pruned_csv_note_dir, csv_label_dir, motif_midi_dir
-            , result_list, song_indexes_list[j]))
+            , result_list, song_indexes_list[j], save_dir))
         jobs.append(p)
         p.start()
 
@@ -474,6 +497,8 @@ def get_args():
     parser.add_argument('--method', type=str, required=True, choices=['CSA', 'SIATEC', 'SIATEC_CS'])
     parser.add_argument('--csv_label_dir', type=str, default='../datasets/Beethoven_motif-main/csv_label')
     parser.add_argument('--motif_midi_dir', type=str, default='../datasets/Beethoven_motif-main/motif_midi')
+    parser.add_argument('--save_predictions_dir', type=str, default=None,
+        help="Optional directory to save predicted motifs per piece (JSON).")
     # parser.add_argument('--jkupdd_data_dir', type=str, default='./JKUPDD/JKUPDD-noAudio-Aug2013/groundTruth')
     return parser.parse_args()
 
@@ -483,10 +508,10 @@ if __name__ == '__main__':
     method = args.method
 
     if method == 'CSA':
-        CSA(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir)
+        CSA(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir)
     elif method == 'SIATEC':
-        SIATEC(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir)
+        SIATEC(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir)
     elif method == 'SIATEC_CS':
-        SIATEC_CS(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir)
+        SIATEC_CS(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir)
     else:
         print('Unknown method:', method)

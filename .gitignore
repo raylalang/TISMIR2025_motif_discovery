@@ -2,3 +2,6 @@ __pycache__/
 *.ckpt
 logs/
 MNID/BPS_MNID_MI
+*.log
+*.csv
+runs/
