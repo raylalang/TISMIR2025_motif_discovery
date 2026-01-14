@@ -6,7 +6,12 @@ Created on Tue Feb  20  2023
 # import time
 import numpy as np
 np.bool = np.bool_
-import os, pickle, json
+import os, pickle, json, sys
+from pathlib import Path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+import yaml
 import csv
 from os.path import join as jpath
 from os.path import isdir
@@ -162,6 +167,36 @@ def save_patterns(piece_id, patterns_est, save_dir):
         json.dump(payload, f)
 
 
+def _format_metrics(P_est, R_est, F_est, P_occ, R_occ, F_occ, P_thr, R_thr, F_thr):
+    return {
+        "establishment": {
+            "precision": float(P_est),
+            "recall": float(R_est),
+            "f1": float(F_est),
+        },
+        "occurrence": {
+            "precision": float(P_occ),
+            "recall": float(R_occ),
+            "f1": float(F_occ),
+        },
+        "three_layer": {
+            "precision": float(P_thr),
+            "recall": float(R_thr),
+            "f1": float(F_thr),
+        },
+    }
+
+
+def save_piece_metrics(metrics_by_piece, save_dir, filename="metrics_by_piece.json"):
+    if save_dir is None:
+        return
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    payload = {"pieces": metrics_by_piece}
+    out_path = Path(save_dir) / filename
+    with open(out_path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
 def run_one_data(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_indexes, save_dir=None):
     for i in song_indexes:
         piece = str(i).zfill(2)
@@ -250,6 +285,23 @@ def CSA(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     groundtruth_motif_count = [result[11] for result in result_list]
     avg_duration_list = [result[12] for result in result_list]
 
+    piece_metrics = {}
+    for i, result in enumerate(result_list, start=1):
+        if not result:
+            continue
+        piece_id = f"{str(i).zfill(2)}-1"
+        piece_metrics[piece_id] = {
+            "metrics": _format_metrics(
+                result[1], result[2], result[0],
+                result[4], result[5], result[3],
+                result[7], result[8], result[6],
+            ),
+            "num_motifs": int(result[10]),
+            "num_ref_motifs": int(result[11]),
+            "runtime_sec": float(result[9]),
+            "avg_predicted_duration": float(result[12]),
+        }
+
     mean_P_est = np.mean(all_P_est)
     mean_R_est = np.mean(all_R_est)
     mean_F_est = np.mean(all_F_est)
@@ -270,6 +322,8 @@ def CSA(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     print('Runtime %.4f Averaged Runtime %.4f' % (runtime / 60, runtime / 1920))
     print('Avg GT motif %.4f Avg predicted motif %.4f' % (mean_groundtruth_motif_count, mean_predict_motif_count))
     print ('Avg motif duration %.4f' %(avg_duration))
+
+    save_piece_metrics(piece_metrics, save_dir)
 
     # output_dir = 'BPS_MNID_CSA_motif_discovery'
     # os.makedirs(output_dir, exist_ok=True)
@@ -304,6 +358,7 @@ def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     all_P_est, all_R_est, all_F_est = [], [], []
     all_P_occ, all_R_occ, all_F_occ = [], [], []
     all_P_thr, all_R_thr, all_F_thr = [], [], []
+    piece_metrics = {}
 
     runtime = 0.0
 
@@ -328,12 +383,13 @@ def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
         elp = time.time()
         '''Baseline algorithms'''
         tecs = new_algorithms.siatechf(dataset, min_cr=2)
-        print('elapsed time, tec %.2f sec' % (time.time() - elp))
+        runtime_piece = time.time() - elp
+        print('elapsed time, tec %.2f sec' % runtime_piece)
 
         # Convert tecs to mir_eval format
         patterns_est = [get_all_occurrences(tec) for tec in tecs if len(tec.get_translators())]
         print('len(patterns_est)', len(patterns_est))
-        runtime = runtime + time.time() - elp
+        runtime = runtime + runtime_piece
 
         save_patterns(piece + "-1", patterns_est, save_dir)
 
@@ -346,6 +402,18 @@ def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
         print('occ P %.4f, R %.4f, F %.4f' % (P_occ, R_occ, F_occ))
         print('thr P %.4f, R %.4f, F %.4f' % (P_thr, R_thr, F_thr))
         print('elapsed time, eval %.2f sec' % (time.time() - elp))
+
+        piece_id = piece + "-1"
+        piece_metrics[piece_id] = {
+            "metrics": _format_metrics(
+                P_est, R_est, F_est,
+                P_occ, R_occ, F_occ,
+                P_thr, R_thr, F_thr,
+            ),
+            "num_motifs": len(patterns_est),
+            "num_ref_motifs": len(patterns_ref),
+            "runtime_sec": float(runtime_piece),
+        }
 
         all_P_est.append(P_est)
         all_R_est.append(R_est)
@@ -372,6 +440,8 @@ def SIATEC(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None):
     print('Mean_thr P %.4f, R %.4f, F %.4f' % (mean_P_thr, mean_R_thr, mean_F_thr))
 
     print('Runtime %.4f Averaged Runtime %.4f' % (runtime / 60, runtime / 1920))
+
+    save_piece_metrics(piece_metrics, save_dir)
 
 def run_one_data_SIATEC_CS(csv_note_dir, csv_label_dir, motif_midi_dir, result_list, song_indexes, save_dir=None):
     for song_id in song_indexes:
@@ -473,6 +543,22 @@ def SIATEC_CS(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None)
     predict_motif_count = [result[10] for result in result_list]
     groundtruth_motif_count = [result[11] for result in result_list]
 
+    piece_metrics = {}
+    for i, result in enumerate(result_list, start=1):
+        if not result:
+            continue
+        piece_id = f"{str(i).zfill(2)}-1"
+        piece_metrics[piece_id] = {
+            "metrics": _format_metrics(
+                result[1], result[2], result[0],
+                result[4], result[5], result[3],
+                result[7], result[8], result[6],
+            ),
+            "num_motifs": int(result[10]),
+            "num_ref_motifs": int(result[11]),
+            "runtime_sec": float(result[9]),
+        }
+
     mean_P_est = np.mean(all_P_est)
     mean_R_est = np.mean(all_R_est)
     mean_F_est = np.mean(all_F_est)
@@ -491,14 +577,198 @@ def SIATEC_CS(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None)
     print('Runtime %.4f Averaged Runtime %.4f' % (runtime / 60, runtime / 1920))
     print('Avg GT motif %.4f Avg predicted motif %.4f' % (mean_groundtruth_motif_count, mean_predict_motif_count))
 
+    save_piece_metrics(piece_metrics, save_dir)
+
+
+def _lr_v0_process(piece: str, pruned_csv_note_dir: str, csv_label_dir: str, motif_midi_dir: str, save_dir: str, lr_config_path: str):
+    """Worker to run LR_V0 on one piece (used for multiprocessing)."""
+    from motif_discovery.learned_retrieval.predict import LRConfig, lr_config_from_dict, predict_piece  # type: ignore
+
+    cfg = LRConfig()
+    if lr_config_path:
+        cfg_path = Path(lr_config_path).expanduser()
+        raw = None
+        if cfg_path.suffix.lower() == ".json":
+            raw = json.loads(cfg_path.read_text())
+        else:
+            if yaml is None:
+                raise ValueError(f"Install PyYAML or provide JSON for lr_config: {cfg_path}")
+            raw = yaml.safe_load(cfg_path.read_text())
+        if raw is None:
+            raise ValueError(f"Failed to parse lr_config at {cfg_path}")
+        cfg = lr_config_from_dict(raw)
+
+    filename_csv = os.path.join(csv_label_dir, piece + '.csv')
+    filename_midi = os.path.join(motif_midi_dir, piece + '.mid')
+    motives = load_all_motives(filename_csv, filename_midi)
+    patterns_ref = [[list(occur[['onset', 'pitch']]) for occur in motif] for motif in motives.values()]
+
+    filename_eval = os.path.join(pruned_csv_note_dir, piece + '.csv')
+    notes = load_all_notes(filename_eval)
+
+    start_time = time.time()
+    patterns_est = predict_piece(notes, piece, cfg)
+    runtime = time.time() - start_time
+
+    save_patterns(piece, patterns_est, save_dir)
+
+    F_est, P_est, R_est = establishment_FPR(patterns_ref, patterns_est)
+    F_occ, P_occ, R_occ = occurrence_FPR(patterns_ref, patterns_est)
+    F_thr, P_thr, R_thr = three_layer_FPR(patterns_ref, patterns_est)
+    return (F_est, P_est, R_est, F_occ, P_occ, R_occ, F_thr, P_thr, R_thr, runtime, len(patterns_est), len(patterns_ref))
+
+
+def LR_V0(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None, lr_config_path=None, num_workers: int = 1):
+    """
+    Learned retrieval v0: segments -> embeddings -> retrieval -> clustering -> consolidation.
+    """
+    print('******* LR_V0 *******')
+    from motif_discovery.learned_retrieval.predict import LRConfig, lr_config_from_dict, predict_piece  # lazy import to avoid extra deps elsewhere
+
+    cfg = LRConfig()
+    if lr_config_path:
+        cfg_path = Path(lr_config_path).expanduser()
+        raw = None
+        if cfg_path.suffix.lower() == ".json":
+            raw = json.loads(cfg_path.read_text())
+        else:
+            raw = yaml.safe_load(cfg_path.read_text())
+        if raw is None:
+            raise ValueError(f"Failed to parse lr_config at {cfg_path}")
+        cfg = lr_config_from_dict(raw)
+
+    all_P_est, all_R_est, all_F_est = [], [], []
+    all_P_occ, all_R_occ, all_F_occ = [], [], []
+    all_P_thr, all_R_thr, all_F_thr = [], [], []
+    piece_metrics = {}
+    runtime = 0.0
+
+    # Determine worker count (optional)
+    pieces = [str(i).zfill(2) + "-1" for i in range(1, 33)]
+
+    if num_workers > 1:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        tasks = []
+        with ProcessPoolExecutor(max_workers=num_workers) as ex:
+            for piece in pieces:
+                fut = ex.submit(
+                    _lr_v0_process,
+                    piece,
+                    pruned_csv_note_dir,
+                    csv_label_dir,
+                    motif_midi_dir,
+                    save_dir if save_dir else "",
+                    lr_config_path if lr_config_path else "",
+                )
+                tasks.append((piece, fut))
+            for piece, fut in tasks:
+                res = fut.result()
+                (
+                    F_est, P_est, R_est,
+                    F_occ, P_occ, R_occ,
+                    F_thr, P_thr, R_thr,
+                    runtime_piece, _, _
+                ) = res
+                runtime += runtime_piece
+                piece_metrics[piece] = {
+                    "metrics": _format_metrics(
+                        P_est, R_est, F_est,
+                        P_occ, R_occ, F_occ,
+                        P_thr, R_thr, F_thr,
+                    ),
+                    "num_motifs": int(res[10]),
+                    "num_ref_motifs": int(res[11]),
+                    "runtime_sec": float(runtime_piece),
+                }
+                all_P_est.append(P_est)
+                all_R_est.append(R_est)
+                all_F_est.append(F_est)
+                all_P_occ.append(P_occ)
+                all_R_occ.append(R_occ)
+                all_F_occ.append(F_occ)
+                all_P_thr.append(P_thr)
+                all_R_thr.append(R_thr)
+                all_F_thr.append(F_thr)
+                print(f"{piece}: est P {P_est:.4f}, R {R_est:.4f}, F {F_est:.4f}")
+    else:
+        for piece in pieces:
+            print('piece', piece)
+
+            filename_csv = os.path.join(csv_label_dir, piece+'.csv')
+            filename_midi = os.path.join(motif_midi_dir, piece+'.mid')
+            motives = load_all_motives(filename_csv, filename_midi)
+
+            patterns_ref = [[list(occur[['onset', 'pitch']]) for occur in motif] for motif in motives.values()]
+
+            filename_eval = os.path.join(pruned_csv_note_dir, piece+'.csv')
+            notes = load_all_notes(filename_eval)
+
+            start_time = time.time()
+            patterns_est = predict_piece(notes, piece, cfg)
+            runtime_piece = time.time() - start_time
+            runtime += runtime_piece
+
+            save_patterns(piece, patterns_est, save_dir)
+
+            elp = time.time()
+            F_est, P_est, R_est = establishment_FPR(patterns_ref, patterns_est)
+            F_occ, P_occ, R_occ = occurrence_FPR(patterns_ref, patterns_est)
+            F_thr, P_thr, R_thr = three_layer_FPR(patterns_ref, patterns_est)
+            print('est P %.4f, R %.4f, F %.4f' % (P_est, R_est, F_est))
+            print('occ P %.4f, R %.4f, F %.4f' % (P_occ, R_occ, F_occ))
+            print('thr P %.4f, R %.4f, F %.4f' % (P_thr, R_thr, F_thr))
+            print('elapsed time, eval %.2f sec' % (time.time() - elp))
+
+            piece_metrics[piece] = {
+                "metrics": _format_metrics(
+                    P_est, R_est, F_est,
+                    P_occ, R_occ, F_occ,
+                    P_thr, R_thr, F_thr,
+                ),
+                "num_motifs": len(patterns_est),
+                "num_ref_motifs": len(patterns_ref),
+                "runtime_sec": float(runtime_piece),
+            }
+
+            all_P_est.append(P_est)
+            all_R_est.append(R_est)
+            all_F_est.append(F_est)
+            all_P_occ.append(P_occ)
+            all_R_occ.append(R_occ)
+            all_F_occ.append(F_occ)
+            all_P_thr.append(P_thr)
+            all_R_thr.append(R_thr)
+            all_F_thr.append(F_thr)
+
+    mean_P_est = np.mean(all_P_est)
+    mean_R_est = np.mean(all_R_est)
+    mean_F_est = np.mean(all_F_est)
+    mean_P_occ = np.mean(all_P_occ)
+    mean_R_occ = np.mean(all_R_occ)
+    mean_F_occ = np.mean(all_F_occ)
+    mean_P_thr = np.mean(all_P_thr)
+    mean_R_thr = np.mean(all_R_thr)
+    mean_F_thr = np.mean(all_F_thr)
+
+    print('Mean_est P %.4f, R %.4f, F %.4f' % (mean_P_est, mean_R_est, mean_F_est))
+    print('Mean_occ P %.4f, R %.4f, F %.4f' % (mean_P_occ, mean_R_occ, mean_F_occ))
+    print('Mean_thr P %.4f, R %.4f, F %.4f' % (mean_P_thr, mean_R_thr, mean_F_thr))
+    print('Runtime %.4f Averaged Runtime %.4f' % (runtime / 60, runtime / 1920))
+
+    save_piece_metrics(piece_metrics, save_dir)
+
 def get_args():
     parser = argparse.ArgumentParser(description='Motif Discovery Experiments')
     parser.add_argument('--csv_note_dir', type=str, required=True)
-    parser.add_argument('--method', type=str, required=True, choices=['CSA', 'SIATEC', 'SIATEC_CS'])
+    parser.add_argument('--method', type=str, required=True, choices=['CSA', 'SIATEC', 'SIATEC_CS', 'LR_V0', 'LR_V1'])
     parser.add_argument('--csv_label_dir', type=str, default='../datasets/Beethoven_motif-main/csv_label')
     parser.add_argument('--motif_midi_dir', type=str, default='../datasets/Beethoven_motif-main/motif_midi')
     parser.add_argument('--save_predictions_dir', type=str, default=None,
         help="Optional directory to save predicted motifs per piece (JSON).")
+    parser.add_argument('--lr_config', type=str, default=None,
+        help="Optional JSON/YAML config for LR_V0 parameters.")
+    parser.add_argument('--num_workers', type=int, default=1,
+        help="For LR_V0: number of processes to use (per-piece parallelism).")
     # parser.add_argument('--jkupdd_data_dir', type=str, default='./JKUPDD/JKUPDD-noAudio-Aug2013/groundTruth')
     return parser.parse_args()
 
@@ -513,5 +783,9 @@ if __name__ == '__main__':
         SIATEC(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir)
     elif method == 'SIATEC_CS':
         SIATEC_CS(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir)
+    elif method == 'LR_V0':
+        LR_V0(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir, args.lr_config, args.num_workers)
+    elif method == 'LR_V1':
+        LR_V0(args.csv_note_dir, args.csv_label_dir, args.motif_midi_dir, args.save_predictions_dir, args.lr_config, args.num_workers)
     else:
         print('Unknown method:', method)

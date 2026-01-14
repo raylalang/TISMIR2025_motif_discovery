@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
         description="Run motif discovery on a small piece list for comparison."
     )
     parser.add_argument(
-        "--method", type=str, required=True, choices=["CSA", "SIATEC", "SIATEC_CS"]
+        "--method", type=str, required=True, choices=["CSA", "SIATEC", "SIATEC_CS", "LR_V0"]
     )
     parser.add_argument(
         "--csv_note_dir",
@@ -153,6 +153,11 @@ def run_siatec_cs(csv_path: Path):
     return patterns_est
 
 
+def run_LR_stub(_: Path):
+    # Placeholder for LR_V0.
+    return []
+
+
 def to_json_serializable(patterns_est):
     serializable = []
     for motif in patterns_est:
@@ -192,6 +197,8 @@ def run_one_task(params):
         patterns_est = run_csa(notes)
     elif method == "SIATEC":
         patterns_est = run_siatec(csv_path)
+    elif method == "LR_V0":
+        patterns_est = run_LR_stub(csv_path)
     else:
         patterns_est = run_siatec_cs(csv_path)
     elapsed = time.time() - t0

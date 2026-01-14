@@ -1,26 +1,9 @@
 #!/usr/bin/env bash
+
 # nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/baseline_bps_csa-20251218-173359/motifs_csa \
-#   --out-dir runs/baseline_bps_csa-20251218-173359/analysis_csa > logs/audit_predictions_csa.log 2>&1 &
-# nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/baseline_bps_siatec-20251218-173403/motifs_siatec \
-#   --out-dir runs/baseline_bps_siatec-20251218-173403/analysis_siatec > logs/audit_predictions_siatec.log 2>&1 &
-# nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/baseline_bps_siatec-20251218-173403/motifs_siatec \
-#   --out-dir runs/baseline_bps_siatec-20251218-173403/analysis_siatec_capped_4000 \
-#   --num-workers 8 --pairwise-cap 4000 > logs/audit_predictions_siatec.log 2>&1 &
-# nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/slice_siatec_cs_29_21_06/motifs \
-#   --out-dir runs/slice_siatec_cs_29_21_06/analysis \
-#   --num-workers 3 --pairwise-cap 4000 > logs/audit_predictions_siatec_cs.log 2>&1 &
-# nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/slice_siatec_29_21_06/motifs \
-#   --out-dir runs/slice_siatec_29_21_06/analysis \
-#   --num-workers 3 --pairwise-cap 4000 > logs/audit_predictions_siatec.log 2>&1 &
-# nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/slice_csa_29_21_06/motifs \
-#   --out-dir runs/slice_csa_29_21_06/analysis \
-#   --num-workers 3 --pairwise-cap 4000 > logs/audit_predictions_csa.log 2>&1 &
+#   --patterns-dir runs/lr_v0_1_mnid_bps-20260106-193636/motifs \
+#   --out-dir runs/lr_v0_1_mnid_bps-20260106-193636/analysis \
+#   --num-workers 4 > logs/audit_predictions_lr_mnid.log 2>&1 &
 
 
 set -euo pipefail

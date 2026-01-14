@@ -5,6 +5,8 @@
 #   --out-dir runs/slice_siatec_29_21_06 --num-workers 3 > logs/run_slice_siatec.log 2>&1 &
 # nohup bash scripts/run_slice.sh --method SIATEC_CS --save-predictions \
 #   --out-dir runs/slice_siatec_cs_29_21_06 --num-workers 3 > logs/run_slice_siatec_cs.log 2>&1 &
+# nohup bash scripts/run_slice.sh --method LR_V0 --save-predictions \
+#   --out-dir runs/slice_lrv0_29_21_06 --num-workers 3 > logs/run_slice_lrv0.log 2>&1 &
 
 set -euo pipefail
 
@@ -23,7 +25,7 @@ NUM_WORKERS=1
 
 usage() {
   cat <<EOF
-Usage: $0 [--method CSA|SIATEC|SIATEC_CS] [--pieces CSV] [--csv-note-dir DIR] [--csv-label-dir DIR] [--motif-midi-dir DIR] [--out-dir DIR] [--save-predictions]
+Usage: $0 [--method CSA|SIATEC|SIATEC_CS|LR_V0] [--pieces CSV] [--csv-note-dir DIR] [--csv-label-dir DIR] [--motif-midi-dir DIR] [--out-dir DIR] [--save-predictions]
 
 Defaults:
   --method          ${METHOD}

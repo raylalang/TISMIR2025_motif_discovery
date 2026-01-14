@@ -226,10 +226,84 @@ def main(pruned_csv_note_dir, method):
     print('Mean_thr P %.4f, R %.4f, F %.4f' % (mean_P_thr, mean_R_thr, mean_F_thr))
     print('Runtime %.4f min Averaged runtime %.4f min' % (runtime / 60, runtime / 300))
 
+
+def LR_V0(pruned_csv_note_dir):
+    """
+    Placeholder for the learned retrieval pipeline on JKU-PDD.
+    Returns empty motif predictions while keeping evaluation hooks intact.
+    """
+    print('******* LR_V0 (stub) *******')
+
+    all_P_est, all_R_est, all_F_est = [], [], []
+    all_P_occ, all_R_occ, all_F_occ = [], [], []
+    all_P_thr, all_R_thr, all_F_thr = [], [], []
+    runtime = 0.0
+    total_n_notes = 0
+
+    for song_id in range(5):
+        print('file %s' % jkupdd_notes_csv[song_id])
+        piece = str(song_id+1).zfill(2)
+
+        filename_notes = os.path.join(pruned_csv_note_dir, piece+'-1.csv')
+        notes = load_all_notes(filename_notes)
+        total_n_notes += len(notes)
+
+        pattern_csv_dir = jpath(jkupdd_data_dir, jkupdd_corpus[song_id], 'monophonic/repeatedPatterns')
+        note_csv_dir = jpath(jkupdd_data_dir, jkupdd_corpus[song_id], 'polyphonic/csv', jkupdd_notes_csv[song_id])
+        original_poly_notes = load_jkupdd_notes_csv(note_csv_dir)
+
+        if song_id == 0 or song_id == 3:
+            patterns_ref = load_jkupdd_patterns_csv(pattern_csv_dir
+                , max_note_onset=original_poly_notes[-1][0])
+        else:
+            patterns_ref = load_jkupdd_patterns_csv(pattern_csv_dir
+                , max_note_onset=100000)
+
+        start_time = time.time()
+        patterns_est = []  # stub: no predictions yet
+        elp = time.time() - start_time
+        runtime += elp
+        print('elapsed time %.4f sec' % elp)
+        print('len(patterns_est)', len(patterns_est))
+
+        # Evaluation
+        F_est, P_est, R_est = establishment_FPR(patterns_ref, patterns_est)
+        F_occ, P_occ, R_occ = occurrence_FPR(patterns_ref, patterns_est)
+        F_thr, P_thr, R_thr = three_layer_FPR(patterns_ref, patterns_est)
+        print('est P %.4f, R %.4f, F %.4f' % (P_est, R_est, F_est))
+        print('occ P %.4f, R %.4f, F %.4f' % (P_occ, R_occ, F_occ))
+        print('thr P %.4f, R %.4f, F %.4f' % (P_thr, R_thr, F_thr))
+
+        all_P_est.append(P_est)
+        all_R_est.append(R_est)
+        all_F_est.append(F_est)
+        all_P_occ.append(P_occ)
+        all_R_occ.append(R_occ)
+        all_F_occ.append(F_occ)
+        all_P_thr.append(P_thr)
+        all_R_thr.append(R_thr)
+        all_F_thr.append(F_thr)
+
+    print('avg notes %d' %(total_n_notes/5))
+    mean_P_est = np.mean(all_P_est)
+    mean_R_est = np.mean(all_R_est)
+    mean_F_est = np.mean(all_F_est)
+    mean_P_occ = np.mean(all_P_occ)
+    mean_R_occ = np.mean(all_R_occ)
+    mean_F_occ = np.mean(all_F_occ)
+    mean_P_thr = np.mean(all_P_thr)
+    mean_R_thr = np.mean(all_R_thr)
+    mean_F_thr = np.mean(all_F_thr)
+    print('Mean_est P %.4f, R %.4f, F %.4f' % (mean_P_est, mean_R_est, mean_F_est))
+    print('Mean_occ P %.4f, R %.4f, F %.4f' % (mean_P_occ, mean_R_occ, mean_F_occ))
+    print('Mean_thr P %.4f, R %.4f, F %.4f' % (mean_P_thr, mean_R_thr, mean_F_thr))
+    print('Runtime %.4f min Averaged runtime %.4f min' % (runtime / 60, runtime / 300))
+
+
 def get_args():
     parser = argparse.ArgumentParser(description='Motif Discovery Experiments')
     parser.add_argument('--csv_note_dir', type=str, required=True)
-    parser.add_argument('--method', type=str, required=True, choices=['CSA', 'SIATEC', 'SIATEC_CS'])
+    parser.add_argument('--method', type=str, required=True, choices=['CSA', 'SIATEC', 'SIATEC_CS', 'LR_V0'])
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -237,4 +311,7 @@ if __name__ == '__main__':
     args = get_args()
     method = args.method
 
-    main(args.csv_note_dir, method=method)
+    if method == 'LR_V0':
+        LR_V0(args.csv_note_dir)
+    else:
+        main(args.csv_note_dir, method=method)
