@@ -120,6 +120,12 @@ def main():
         help="Optional path to save stats as JSON.",
     )
     parser.add_argument(
+        "--segments-dir",
+        type=str,
+        default=None,
+        help="Optional directory of segment JSONs (from scripts/run_segments.py) to analyze max_len.",
+    )
+    parser.add_argument(
         "--jkupdd-dir",
         type=str,
         default=str(REPO_ROOT / "motif_discovery/JKUPDD/JKUPDD-noAudio-Aug2013"),
@@ -135,6 +141,10 @@ def main():
     g_all: List[float] = []
     same_iou: List[float] = []
     diff_iou: List[float] = []
+    seg_note_counts: List[int] = []
+    seg_delta_counts: List[int] = []
+    seg_scale_note_counts: Dict[str, List[int]] = {}
+    seg_scale_delta_counts: Dict[str, List[int]] = {}
 
     if args.dataset == "bps":
         label_dir = Path(args.csv_label_dir)
@@ -204,6 +214,33 @@ def main():
                     centered_log_dt_all.extend(cldt.tolist())
                     g_all.append(g)
 
+    if args.segments_dir:
+        seg_dir = Path(args.segments_dir)
+        if args.pieces:
+            seg_pieces = [p.strip() for p in args.pieces.split(",") if p.strip()]
+        else:
+            seg_pieces = [p.stem for p in sorted(seg_dir.glob("*.json"))]
+        for piece in seg_pieces:
+            seg_path = seg_dir / f"{piece}.json"
+            if not seg_path.exists():
+                raise FileNotFoundError(f"Missing segment JSON: {seg_path}")
+            payload = json.loads(seg_path.read_text())
+            scales = payload.get("scales", [])
+            for seg in payload.get("segments", []):
+                n_notes = len(seg.get("note_indices", []))
+                if n_notes <= 0:
+                    continue
+                seg_note_counts.append(n_notes)
+                seg_delta_counts.append(max(0, n_notes - 1))
+                scale_id = seg.get("scale_id")
+                if scale_id is not None:
+                    if scale_id < len(scales):
+                        scale_key = f"{scales[scale_id]}"
+                    else:
+                        scale_key = f"scale_{scale_id}"
+                    seg_scale_note_counts.setdefault(scale_key, []).append(n_notes)
+                    seg_scale_delta_counts.setdefault(scale_key, []).append(max(0, n_notes - 1))
+
     span_stats = percentile_stats(np.array(all_spans)) if all_spans else {}
     count_stats = percentile_stats(np.array(all_counts)) if all_counts else {}
     dp_stats = percentile_stats(np.array(dp_all)) if dp_all else {}
@@ -212,6 +249,14 @@ def main():
     g_stats = percentile_stats(np.array(g_all)) if g_all else {}
     same_iou_stats = percentile_stats(np.array(same_iou)) if same_iou else {}
     diff_iou_stats = percentile_stats(np.array(diff_iou)) if diff_iou else {}
+    seg_note_stats = percentile_stats(np.array(seg_note_counts)) if seg_note_counts else {}
+    seg_delta_stats = percentile_stats(np.array(seg_delta_counts)) if seg_delta_counts else {}
+    seg_scale_note_stats = {
+        k: percentile_stats(np.array(v)) for k, v in seg_scale_note_counts.items()
+    }
+    seg_scale_delta_stats = {
+        k: percentile_stats(np.array(v)) for k, v in seg_scale_delta_counts.items()
+    }
 
     print(f"Dataset: {args.dataset}")
     print(f"Pieces analyzed: {len(pieces)}")
@@ -248,6 +293,19 @@ def main():
         print("Time IoU (diff motif) stats:")
         for k, v in diff_iou_stats.items():
             print(f"  {k:>3}: {v:.3f}")
+    if seg_note_stats:
+        print("Segment note counts:")
+        for k, v in seg_note_stats.items():
+            print(f"  {k:>3}: {v:.2f}")
+    if seg_delta_stats:
+        print("Segment delta lengths (notes-1):")
+        for k, v in seg_delta_stats.items():
+            print(f"  {k:>3}: {v:.2f}")
+    if seg_scale_delta_stats:
+        print("Segment delta lengths by scale:")
+        for scale_key in sorted(seg_scale_delta_stats.keys()):
+            stats = seg_scale_delta_stats[scale_key]
+            print(f"  scale {scale_key}: p50 {stats['p50']:.2f} p90 {stats['p90']:.2f} p95 {stats['p95']:.2f} p99 {stats['p99']:.2f}")
 
     if args.output:
         out_path = Path(args.output)
@@ -263,6 +321,10 @@ def main():
             "g_stats": g_stats,
             "time_iou_same": same_iou_stats,
             "time_iou_diff": diff_iou_stats,
+            "segment_note_count_stats": seg_note_stats,
+            "segment_delta_count_stats": seg_delta_stats,
+            "segment_scale_note_count_stats": seg_scale_note_stats,
+            "segment_scale_delta_count_stats": seg_scale_delta_stats,
         }
         out_path.write_text(json.dumps(payload, indent=2))
         print(f"Saved stats to {out_path}")

@@ -30,6 +30,7 @@ if str(REPO_ROOT / "motif_discovery") not in sys.path:
 from motif_discovery.experiments import load_all_motives  # type: ignore
 from motif_discovery.learned_retrieval.learned_embeddings import notes_to_sequence
 from motif_discovery.learned_retrieval.learned_encoder import LearnedEncoderConfig, LRSequenceEncoder
+from motif_discovery import experiments_jkupdd  # type: ignore
 
 
 def load_config(path: Path) -> Dict:
@@ -84,18 +85,26 @@ def augment_sequence(seq: np.ndarray, cfg: Dict) -> np.ndarray:
 
 
 class SequenceDataset(Dataset):
-    def __init__(self, sequences: List[np.ndarray], labels: List[int], max_len: int, augment: Dict):
+    def __init__(
+        self,
+        sequences: List[np.ndarray],
+        labels: List[int],
+        max_len: int,
+        augment: Dict,
+        input_repr: str,
+    ):
         self.sequences = sequences
         self.labels = labels
         self.max_len = max_len
         self.augment = augment
+        self.input_repr = input_repr
 
     def __len__(self) -> int:
         return len(self.sequences)
 
     def __getitem__(self, idx: int):
         seq = self.sequences[idx]
-        if self.augment:
+        if self.augment and self.input_repr in ("deltas", "delta"):
             seq = augment_sequence(seq, self.augment)
         if self.max_len and len(seq) > self.max_len:
             seq = seq[: self.max_len]
@@ -135,7 +144,7 @@ def supcon_loss(z: torch.Tensor, labels: torch.Tensor, temperature: float) -> to
     return loss[valid].mean()
 
 
-def load_sequences(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
+def load_sequences_bps(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
     data_cfg = cfg.get("data", {})
     label_dir = Path(data_cfg.get("csv_label_dir", "")).expanduser()
     midi_dir = Path(data_cfg.get("motif_midi_dir", "")).expanduser()
@@ -144,6 +153,9 @@ def load_sequences(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
     max_occ = int(max_occ) if max_occ is not None else None
     label_scope = str(data_cfg.get("label_scope", "piece"))
     use_duration = bool(data_cfg.get("use_duration", False))
+    input_repr = str(data_cfg.get("input_repr", "deltas"))
+    time_bin = float(data_cfg.get("time_bin", 0.125))
+    time_normalize = bool(data_cfg.get("time_normalize", False))
 
     pieces = data_cfg.get("pieces")
     if not pieces:
@@ -165,7 +177,13 @@ def load_sequences(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
             for occ in occ_list:
                 if len(occ) < min_notes:
                     continue
-                seq, _g = notes_to_sequence(occ, use_duration=use_duration)
+                seq, _g = notes_to_sequence(
+                    occ,
+                    use_duration=use_duration,
+                    input_repr=input_repr,
+                    time_bin=time_bin,
+                    time_normalize=time_normalize,
+                )
                 if seq is None or len(seq) == 0:
                     continue
                 key = f"{piece}:{motif_type}" if label_scope == "piece" else str(motif_type)
@@ -173,6 +191,78 @@ def load_sequences(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
                     label_map[key] = len(label_map)
                 sequences.append(seq)
                 labels.append(label_map[key])
+    return sequences, labels
+
+
+def load_sequences_jkupdd(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
+    data_cfg = cfg.get("data", {})
+    min_notes = int(data_cfg.get("min_notes", 3))
+    max_occ = data_cfg.get("max_occurrences_per_motif")
+    max_occ = int(max_occ) if max_occ is not None else None
+    use_duration = bool(data_cfg.get("use_duration", False))
+    input_repr = str(data_cfg.get("input_repr", "deltas"))
+    time_bin = float(data_cfg.get("time_bin", 0.125))
+    time_normalize = bool(data_cfg.get("time_normalize", False))
+
+    jkupdd_dir = data_cfg.get("jkupdd_dir")
+    if jkupdd_dir:
+        jk_root = Path(jkupdd_dir).expanduser()
+    else:
+        jk_root = REPO_ROOT / "motif_discovery" / experiments_jkupdd.jkupdd_data_dir
+
+    corpus = data_cfg.get("pieces")
+    if not corpus:
+        corpus = list(experiments_jkupdd.jkupdd_corpus)
+
+    mapping = {
+        name: csv_name
+        for name, csv_name in zip(experiments_jkupdd.jkupdd_corpus, experiments_jkupdd.jkupdd_notes_csv)
+    }
+
+    sequences: List[np.ndarray] = []
+    labels: List[int] = []
+    label_map: Dict[str, int] = {}
+
+    for piece_name in corpus:
+        if piece_name not in mapping:
+            raise ValueError(f"Unknown JKUPDD piece '{piece_name}'.")
+        note_csv = jk_root / piece_name / "polyphonic" / "csv" / mapping[piece_name]
+        pattern_dir = jk_root / piece_name / "monophonic" / "repeatedPatterns"
+        poly_notes = experiments_jkupdd.load_jkupdd_notes_csv(str(note_csv))
+        max_onset = float(poly_notes[-1][0]) if len(poly_notes) else 0.0
+        if piece_name in (experiments_jkupdd.jkupdd_corpus[0], experiments_jkupdd.jkupdd_corpus[3]):
+            patterns = experiments_jkupdd.load_jkupdd_patterns_csv(str(pattern_dir), max_note_onset=max_onset)
+        else:
+            patterns = experiments_jkupdd.load_jkupdd_patterns_csv(str(pattern_dir), max_note_onset=100000)
+
+        for pat_idx, pattern in enumerate(patterns):
+            occs = list(pattern)
+            random.shuffle(occs)
+            if max_occ is not None:
+                occs = occs[:max_occ]
+            key = f"{piece_name}:pattern_{pat_idx}"
+            if key not in label_map:
+                label_map[key] = len(label_map)
+            label_id = label_map[key]
+            for occ in occs:
+                occ_arr = np.asarray(occ, dtype=np.float32)
+                if occ_arr.ndim != 2 or occ_arr.shape[0] < min_notes:
+                    continue
+                # Sort by onset for stable deltas.
+                occ_arr = occ_arr[np.argsort(occ_arr[:, 0])]
+                # Use only onset/pitch columns (ignore extras if present).
+                occ_arr = occ_arr[:, :2]
+                seq, _g = notes_to_sequence(
+                    occ_arr,
+                    use_duration=use_duration,
+                    input_repr=input_repr,
+                    time_bin=time_bin,
+                    time_normalize=time_normalize,
+                )
+                if seq is None or len(seq) == 0:
+                    continue
+                sequences.append(seq)
+                labels.append(label_id)
     return sequences, labels
 
 
@@ -198,12 +288,23 @@ def main() -> None:
         max_len=int(model_cfg_raw.get("max_len", 256)),
     )
 
-    sequences, labels = load_sequences(cfg)
+    data_cfg = cfg.get("data", {})
+    dataset = str(data_cfg.get("dataset", "bps")).lower()
+    input_repr = str(data_cfg.get("input_repr", "deltas"))
+    if dataset == "jkupdd":
+        sequences, labels = load_sequences_jkupdd(cfg)
+    else:
+        sequences, labels = load_sequences_bps(cfg)
     if not sequences:
         raise ValueError("No training sequences found. Check data paths and config.")
 
+    if sequences and sequences[0].shape[1] != model_cfg.input_dim:
+        raise ValueError(
+            f"Input feature dim {sequences[0].shape[1]} does not match model.input_dim {model_cfg.input_dim}."
+        )
+
     augment_cfg = cfg.get("augment", {})
-    dataset = SequenceDataset(sequences, labels, model_cfg.max_len, augment_cfg)
+    dataset = SequenceDataset(sequences, labels, model_cfg.max_len, augment_cfg, input_repr)
     train_cfg = cfg.get("train", {})
     batch_size = int(train_cfg.get("batch_size", 128))
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)

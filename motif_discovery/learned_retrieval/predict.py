@@ -4,6 +4,7 @@ End-to-end LR_V0 predictor: segments -> embeddings -> retrieval -> clustering ->
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Sequence, Tuple
 
 import numpy as np
@@ -20,6 +21,8 @@ class LRConfig:
     scale_lengths: Sequence[float] = (2.0, 4.0, 8.0, 16.0)
     hop_ratio: float = 0.25
     min_notes: int = 3
+    segment_unit: str = "time"  # time | beat
+    beat_midi_dir: str | None = None
     retrieval: RetrievalConfig = RetrievalConfig()
     consolidate: ConsolidateConfig = ConsolidateConfig()
     use_pitch_class: bool = True  # legacy; unused in current embedding
@@ -29,6 +32,9 @@ class LRConfig:
     learned_device: str = "cpu"
     learned_batch_size: int = 128
     learned_use_duration: bool = False
+    learned_input_repr: str = "deltas"  # deltas | pitch_bins_pc
+    learned_time_bin: float = 0.125
+    learned_time_normalize: bool = False
     pitch_bins: Sequence[float] | None = None
     log_ioi_bins: Sequence[float] | None = None
     ngram_orders: Sequence[int] | None = None
@@ -46,6 +52,10 @@ def lr_config_from_dict(raw: dict) -> LRConfig:
         cfg.hop_ratio = float(raw.get("hop_ratio", cfg.hop_ratio))
     if "min_notes" in raw:
         cfg.min_notes = int(raw.get("min_notes", cfg.min_notes))
+    if "segment_unit" in raw:
+        cfg.segment_unit = str(raw.get("segment_unit", cfg.segment_unit))
+    if "beat_midi_dir" in raw:
+        cfg.beat_midi_dir = str(raw.get("beat_midi_dir", cfg.beat_midi_dir))
     if "use_pitch_class" in raw:
         cfg.use_pitch_class = bool(raw.get("use_pitch_class", cfg.use_pitch_class))
     if "embedding" in raw:
@@ -58,6 +68,12 @@ def lr_config_from_dict(raw: dict) -> LRConfig:
         cfg.learned_batch_size = int(raw.get("learned_batch_size", cfg.learned_batch_size))
     if "learned_use_duration" in raw:
         cfg.learned_use_duration = bool(raw.get("learned_use_duration", cfg.learned_use_duration))
+    if "learned_input_repr" in raw:
+        cfg.learned_input_repr = str(raw.get("learned_input_repr", cfg.learned_input_repr))
+    if "learned_time_bin" in raw:
+        cfg.learned_time_bin = float(raw.get("learned_time_bin", cfg.learned_time_bin))
+    if "learned_time_normalize" in raw:
+        cfg.learned_time_normalize = bool(raw.get("learned_time_normalize", cfg.learned_time_normalize))
     if "pitch_bins" in raw:
         cfg.pitch_bins = tuple(raw.get("pitch_bins", []))
     if "log_ioi_bins" in raw:
@@ -108,12 +124,24 @@ def segments_to_occurrences(
 
 def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
     # Segments
+    time_values = None
+    if cfg.segment_unit.lower() == "beat":
+        if not cfg.beat_midi_dir:
+            raise ValueError("beat_midi_dir is required when segment_unit=beat.")
+        from .segments import note_onsets_to_beats
+
+        midi_path = Path(cfg.beat_midi_dir) / f"{piece_id}.mid"
+        if not midi_path.exists():
+            raise FileNotFoundError(f"Missing MIDI for beat segmentation: {midi_path}")
+        time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
+
     segments = propose_segments(
         notes=notes,
         piece_id=piece_id,
         scale_lengths=cfg.scale_lengths,
         hop_ratio=cfg.hop_ratio,
         min_notes=cfg.min_notes,
+        time_values=time_values,
     )
     # Embeddings
     if cfg.embedding.lower() == "learned":
@@ -122,6 +150,7 @@ def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
         from .learned_embeddings import embed_segments_learned, load_learned_encoder
 
         model, _enc_cfg = load_learned_encoder(cfg.learned_ckpt, cfg.learned_device)
+        use_segment_bounds = cfg.segment_unit.lower() != "beat"
         embeddings, tempos, segments = embed_segments_learned(
             notes,
             segments,
@@ -129,6 +158,10 @@ def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
             device=cfg.learned_device,
             batch_size=cfg.learned_batch_size,
             use_duration=cfg.learned_use_duration,
+            input_repr=cfg.learned_input_repr,
+            time_bin=cfg.learned_time_bin,
+            time_normalize=cfg.learned_time_normalize,
+            use_segment_bounds=use_segment_bounds,
         )
     else:
         emb_cfg = default_embed_cfg()

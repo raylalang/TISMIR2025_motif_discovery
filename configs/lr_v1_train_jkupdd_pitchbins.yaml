@@ -1,20 +1,18 @@
-run_name: lr_v1_train_bps
+run_name: lr_v1_train_jkupdd_pitchbins
 seed: 17
 output_root: runs
 data:
-  dataset: bps
-  input_repr: deltas
+  dataset: jkupdd
+  input_repr: pitch_bins_pc
   time_bin: 0.125
   time_normalize: false
-  csv_label_dir: datasets/Beethoven_motif-main/csv_label
-  motif_midi_dir: datasets/Beethoven_motif-main/motif_midi
+  jkupdd_dir: motif_discovery/JKUPDD/JKUPDD-noAudio-Aug2013/groundTruth
   pieces: null
   min_notes: 3
   max_occurrences_per_motif: null
-  label_scope: piece
   use_duration: false
 model:
-  input_dim: 2
+  input_dim: 12
   d_model: 128
   n_layers: 2
   n_heads: 4
@@ -28,7 +26,4 @@ train:
   temperature: 0.2
   device: cuda
   log_every: 50
-augment:
-  tempo_scale_range: [0.8, 1.25]
-  jitter_std: 0.02
-  drop_prob: 0.1
+augment: {}

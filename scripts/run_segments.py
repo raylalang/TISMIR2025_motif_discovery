@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT / "motif_discovery"))
 sys.path.insert(0, str(REPO_ROOT / "motif_discovery" / "repeated_pattern_discovery"))
 
 from motif_discovery.learned_retrieval.segments import propose_segments  # type: ignore
+from motif_discovery.learned_retrieval.segments import note_onsets_to_beats  # type: ignore
 from motif_discovery.experiments import load_all_notes  # type: ignore
 
 
@@ -61,6 +62,19 @@ def main() -> None:
         default=3,
         help="Drop segments with fewer than this many notes.",
     )
+    parser.add_argument(
+        "--segment-unit",
+        type=str,
+        default="time",
+        choices=["time", "beat"],
+        help="Segment in time or beat units (beat requires MIDI).",
+    )
+    parser.add_argument(
+        "--midi-dir",
+        type=str,
+        default=None,
+        help="Directory of MIDI files for beat segmentation.",
+    )
     args = parser.parse_args()
 
     scales = parse_scales(args.scales)
@@ -83,12 +97,21 @@ def main() -> None:
             raise FileNotFoundError(f"Missing note CSV: {csv_path}")
 
         notes = load_all_notes(str(csv_path))
+        time_values = None
+        if args.segment_unit == "beat":
+            if not args.midi_dir:
+                raise ValueError("--midi-dir is required for beat segmentation.")
+            midi_path = Path(args.midi_dir) / f"{piece}.mid"
+            if not midi_path.exists():
+                raise FileNotFoundError(f"Missing MIDI: {midi_path}")
+            time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
         segments = propose_segments(
             notes=notes,
             piece_id=piece,
             scale_lengths=scales,
             hop_ratio=args.hop_ratio,
             min_notes=args.min_notes,
+            time_values=time_values,
         )
 
         payload = {
@@ -96,6 +119,7 @@ def main() -> None:
             "scales": scales,
             "hop_ratio": args.hop_ratio,
             "min_notes": args.min_notes,
+            "segment_unit": args.segment_unit,
             "num_segments": len(segments),
             "segments": [s.to_dict() for s in segments],
         }

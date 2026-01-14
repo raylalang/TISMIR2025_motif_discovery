@@ -61,10 +61,16 @@ def propose_segments(
     scale_lengths: Sequence[float],
     hop_ratio: float = 0.25,
     min_notes: int = 1,
+    time_values: np.ndarray | None = None,
 ) -> List[Segment]:
     if notes.size == 0:
         return []
-    onsets = notes[NOTE_ONSET_KEY]
+    if time_values is not None:
+        if len(time_values) != len(notes):
+            raise ValueError("time_values must match notes length.")
+        onsets = np.asarray(time_values, dtype=np.float32)
+    else:
+        onsets = notes[NOTE_ONSET_KEY]
     min_onset = float(onsets.min())
     max_onset = float(onsets.max())
 
@@ -93,6 +99,32 @@ def propose_segments(
                 )
             )
     return segments
+
+
+def note_onsets_to_beats(onsets: np.ndarray, midi_path: str) -> np.ndarray:
+    import pretty_midi
+
+    if onsets.size == 0:
+        return np.array([], dtype=np.float32)
+    midi = pretty_midi.PrettyMIDI(midi_path)
+    beat_times = np.asarray(midi.get_beats(), dtype=np.float32)
+    if beat_times.size < 2:
+        raise ValueError(f"Need at least two beats to map time to beats: {midi_path}")
+    intervals = np.diff(beat_times)
+    intervals = np.clip(intervals, 1e-6, None)
+    idx = np.searchsorted(beat_times, onsets, side="right") - 1
+    beat_pos = np.empty_like(onsets, dtype=np.float32)
+    before = idx < 0
+    after = idx >= intervals.size
+    mid = ~(before | after)
+    if np.any(before):
+        beat_pos[before] = (onsets[before] - beat_times[0]) / intervals[0]
+    if np.any(after):
+        beat_pos[after] = (intervals.size) + (onsets[after] - beat_times[-1]) / intervals[-1]
+    if np.any(mid):
+        mid_idx = idx[mid]
+        beat_pos[mid] = mid_idx + (onsets[mid] - beat_times[mid_idx]) / intervals[mid_idx]
+    return beat_pos
 
 
 def _parse_scale_list(raw: str) -> List[float]:

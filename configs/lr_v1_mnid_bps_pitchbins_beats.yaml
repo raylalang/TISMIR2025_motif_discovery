@@ -1,4 +1,4 @@
-run_name: lr_v1_mnid_bps
+run_name: lr_v1_mnid_bps_pitchbins_beats
 seed: 17
 output_root: runs
 mnid:
@@ -19,13 +19,15 @@ motif:
   lr_config: null
   lr_params:
     embedding: learned
-    learned_ckpt: runs/lr_v1_train_bps-YYYYMMDD-HHMMSS/encoder.pt
+    learned_ckpt: runs/lr_v1_train_bps_pitchbins_beats-YYYYMMDD-HHMMSS/encoder.pt
     learned_device: cuda
     learned_batch_size: 256
     learned_use_duration: false
-    learned_input_repr: deltas
+    learned_input_repr: pitch_bins_pc
     learned_time_bin: 0.125
-    learned_time_normalize: false
+    learned_time_normalize: true
+    segment_unit: beat
+    beat_midi_dir: datasets/Beethoven_motif-main/motif_midi
     scale_lengths: [2.0, 4.0, 8.0, 16.0]
     hop_ratio: 0.25
     min_notes: 3
