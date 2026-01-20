@@ -1,0 +1,10 @@
+run_name: csa_nomnid_bps
+seed: 17
+output_root: runs
+mnid: null
+motif:
+  method: CSA
+  csv_note_dir: datasets/Beethoven_motif-main/csv_notes_clean
+  csv_label_dir: datasets/Beethoven_motif-main/csv_label
+  motif_midi_dir: datasets/Beethoven_motif-main/motif_midi
+  save_predictions: true

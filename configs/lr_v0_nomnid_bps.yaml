@@ -1,0 +1,30 @@
+run_name: lr_v0_nomnid_bps
+seed: 17
+output_root: runs
+mnid: null
+motif:
+  method: LR_V0
+  csv_note_dir: datasets/Beethoven_motif-main/csv_notes_clean
+  csv_label_dir: datasets/Beethoven_motif-main/csv_label
+  motif_midi_dir: datasets/Beethoven_motif-main/motif_midi
+  save_predictions: true
+  num_workers: 4
+  lr_config: null
+  lr_params:
+    scale_lengths: [2.0, 4.0, 8.0, 16.0]
+    hop_ratio: 0.25
+    min_notes: 3
+    retrieval:
+      top_k: 0
+      sim_threshold: 0.9
+      max_time_iou: 0.25
+      tempo_alpha: 1.0
+      same_scale_only: true
+    consolidate:
+      iou_threshold: 0.5
+      score_mode: centrality
+    pitch_bins: [-24, -12, -7, -5, -3, -2, -1, 0, 1, 2, 3, 5, 7, 12, 24]
+    log_ioi_bins: [-2.5, -2.3, -2.1, -1.9, -1.7, -1.5, -1.3, -1.1, -0.9, -0.7, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5, 1.7, 1.9, 2.1, 2.3, 2.5]
+    ngram_orders: [2, 3]
+    max_skip: 1
+    ngram_bins: 256

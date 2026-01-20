@@ -1,0 +1,32 @@
+run_name: lr_v1_train_jkupdd
+seed: 17
+output_root: runs
+data:
+  dataset: jkupdd
+  input_repr: deltas
+  time_bin: 0.125
+  time_normalize: false
+  jkupdd_dir: motif_discovery/JKUPDD/JKUPDD-noAudio-Aug2013/groundTruth
+  pieces: null
+  min_notes: 3
+  max_occurrences_per_motif: null
+  use_duration: false
+model:
+  input_dim: 2
+  d_model: 128
+  n_layers: 2
+  n_heads: 4
+  dropout: 0.1
+  max_len: 256
+train:
+  epochs: 20
+  batch_size: 128
+  lr: 0.001
+  weight_decay: 0.0001
+  temperature: 0.2
+  device: cuda
+  log_every: 50
+augment:
+  tempo_scale_range: [0.8, 1.25]
+  jitter_std: 0.02
+  drop_prob: 0.1
