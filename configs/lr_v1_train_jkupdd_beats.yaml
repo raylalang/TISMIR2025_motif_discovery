@@ -8,6 +8,7 @@ data:
   time_normalize: true
   jkupdd_dir: motif_discovery/JKUPDD/JKUPDD-noAudio-Aug2013/groundTruth
   pieces: null
+  val_pieces: [beethovenOp2No1Mvt3]
   min_notes: 3
   max_occurrences_per_motif: null
   use_duration: false
@@ -26,6 +27,8 @@ train:
   temperature: 0.2
   device: cuda
   log_every: 50
+  patience: 5
+  min_delta: 0.0
 augment:
   tempo_scale_range: [0.8, 1.25]
   jitter_std: 0.02

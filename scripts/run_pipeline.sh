@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Thin wrapper around scripts/run_pipeline.py
 # Examples:
-# nohup bash CUDA VISIBLE_DEVICES=0 scripts/run_pipeline.sh --config configs/csa_mnid_bps.yaml > logs/run_pipeline_csa.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=0 nohup bash scripts/run_pipeline.sh --config configs/csa_mnid_bps.yaml > logs/run_pipeline_csa.log 2>&1 &
 # nohup bash scripts/run_pipeline.sh --config configs/lr_v0_nomnid_bps_beats.yaml > logs/run_pipeline_lrv0.log 2>&1 &
 # nohup bash scripts/run_pipeline.sh --config configs/lr_v0_mnid_bps_beats.yaml > logs/run_pipeline_lrv0.log 2>&1 &
+# CUDA_VISIBLE_DEVICES=0 nohup bash scripts/run_pipeline.sh --config configs/lr_v1_nomnid_bps_beats.yaml > logs/run_pipeline_lrv1.log 2>&1 &
 
 set -euo pipefail
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 # nohup bash scripts/audit_predictions.sh \
-#   --patterns-dir runs/lr_v0_1_mnid_bps-20260106-193636/motifs \
-#   --out-dir runs/lr_v0_1_mnid_bps-20260106-193636/analysis \
-#   --num-workers 4 > logs/audit_predictions_lr_mnid.log 2>&1 &
+#   --patterns-dir runs/lr_v1_oracle_bps_beats-20260120-155052/motifs \
+#   --out-dir runs/lr_v1_oracle_bps_beats-20260120-155052/analysis \
+#   --num-workers 4 > logs/audit_predictions.log 2>&1 &
 
 
 set -euo pipefail

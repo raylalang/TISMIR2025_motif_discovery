@@ -56,11 +56,13 @@ def build_graph(
     if n == 0:
         return graph
 
-    top_k = max(1, cfg.top_k)
     for i in range(n):
         row = sims[i]
         # top-k indices (excluding self already set to -1)
-        top_idx = np.argpartition(-row, top_k - 1)[:top_k]
+        if cfg.top_k and cfg.top_k > 0:
+            top_idx = np.argpartition(-row, cfg.top_k - 1)[: cfg.top_k]
+        else:
+            top_idx = []
         for j in range(n):
             if i == j:
                 continue

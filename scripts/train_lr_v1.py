@@ -22,14 +22,16 @@ import sys
 
 # Make motif_discovery imports available
 REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-if str(REPO_ROOT / "motif_discovery") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "motif_discovery"))
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "motif_discovery"))
+sys.path.insert(0, str(REPO_ROOT / "motif_discovery" / "repeated_pattern_discovery"))
 
 from motif_discovery.experiments import load_all_motives  # type: ignore
 from motif_discovery.learned_retrieval.learned_embeddings import notes_to_sequence
-from motif_discovery.learned_retrieval.learned_encoder import LearnedEncoderConfig, LRSequenceEncoder
+from motif_discovery.learned_retrieval.learned_encoder import (
+    LearnedEncoderConfig,
+    LRSequenceEncoder,
+)
 from motif_discovery import experiments_jkupdd  # type: ignore
 
 
@@ -111,7 +113,9 @@ class SequenceDataset(Dataset):
         return seq, int(self.labels[idx])
 
 
-def collate_batch(batch: List[Tuple[np.ndarray, int]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def collate_batch(
+    batch: List[Tuple[np.ndarray, int]],
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     sequences, labels = zip(*batch)
     lengths = [len(seq) for seq in sequences]
     max_len = max(lengths)
@@ -124,10 +128,16 @@ def collate_batch(batch: List[Tuple[np.ndarray, int]]) -> Tuple[torch.Tensor, to
             continue
         x[i, :L] = seq
         mask[i, :L] = True
-    return torch.from_numpy(x), torch.from_numpy(mask), torch.tensor(labels, dtype=torch.long)
+    return (
+        torch.from_numpy(x),
+        torch.from_numpy(mask),
+        torch.tensor(labels, dtype=torch.long),
+    )
 
 
-def supcon_loss(z: torch.Tensor, labels: torch.Tensor, temperature: float) -> torch.Tensor | None:
+def supcon_loss(
+    z: torch.Tensor, labels: torch.Tensor, temperature: float
+) -> torch.Tensor | None:
     z = F.normalize(z, p=2, dim=-1)
     sim = torch.matmul(z, z.T) / temperature
     labels = labels.view(-1, 1)
@@ -186,7 +196,11 @@ def load_sequences_bps(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
                 )
                 if seq is None or len(seq) == 0:
                     continue
-                key = f"{piece}:{motif_type}" if label_scope == "piece" else str(motif_type)
+                key = (
+                    f"{piece}:{motif_type}"
+                    if label_scope == "piece"
+                    else str(motif_type)
+                )
                 if key not in label_map:
                     label_map[key] = len(label_map)
                 sequences.append(seq)
@@ -194,7 +208,17 @@ def load_sequences_bps(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
     return sequences, labels
 
 
-def load_sequences_jkupdd(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
+def normalize_piece_list(pieces) -> List[str]:
+    if pieces is None:
+        return []
+    if isinstance(pieces, str):
+        return [pieces]
+    return list(pieces)
+
+
+def load_sequences_jkupdd(
+    cfg: Dict, pieces: List[str] | None = None
+) -> Tuple[List[np.ndarray], List[int]]:
     data_cfg = cfg.get("data", {})
     min_notes = int(data_cfg.get("min_notes", 3))
     max_occ = data_cfg.get("max_occurrences_per_motif")
@@ -210,13 +234,19 @@ def load_sequences_jkupdd(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
     else:
         jk_root = REPO_ROOT / "motif_discovery" / experiments_jkupdd.jkupdd_data_dir
 
-    corpus = data_cfg.get("pieces")
+    corpus = (
+        normalize_piece_list(pieces)
+        if pieces is not None
+        else normalize_piece_list(data_cfg.get("pieces"))
+    )
     if not corpus:
         corpus = list(experiments_jkupdd.jkupdd_corpus)
 
     mapping = {
         name: csv_name
-        for name, csv_name in zip(experiments_jkupdd.jkupdd_corpus, experiments_jkupdd.jkupdd_notes_csv)
+        for name, csv_name in zip(
+            experiments_jkupdd.jkupdd_corpus, experiments_jkupdd.jkupdd_notes_csv
+        )
     }
 
     sequences: List[np.ndarray] = []
@@ -230,10 +260,17 @@ def load_sequences_jkupdd(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
         pattern_dir = jk_root / piece_name / "monophonic" / "repeatedPatterns"
         poly_notes = experiments_jkupdd.load_jkupdd_notes_csv(str(note_csv))
         max_onset = float(poly_notes[-1][0]) if len(poly_notes) else 0.0
-        if piece_name in (experiments_jkupdd.jkupdd_corpus[0], experiments_jkupdd.jkupdd_corpus[3]):
-            patterns = experiments_jkupdd.load_jkupdd_patterns_csv(str(pattern_dir), max_note_onset=max_onset)
+        if piece_name in (
+            experiments_jkupdd.jkupdd_corpus[0],
+            experiments_jkupdd.jkupdd_corpus[3],
+        ):
+            patterns = experiments_jkupdd.load_jkupdd_patterns_csv(
+                str(pattern_dir), max_note_onset=max_onset
+            )
         else:
-            patterns = experiments_jkupdd.load_jkupdd_patterns_csv(str(pattern_dir), max_note_onset=100000)
+            patterns = experiments_jkupdd.load_jkupdd_patterns_csv(
+                str(pattern_dir), max_note_onset=100000
+            )
 
         for pat_idx, pattern in enumerate(patterns):
             occs = list(pattern)
@@ -268,7 +305,9 @@ def load_sequences_jkupdd(cfg: Dict) -> Tuple[List[np.ndarray], List[int]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train LR_V1 learned embedding.")
-    parser.add_argument("--config", type=str, required=True, help="Path to YAML/JSON config.")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to YAML/JSON config."
+    )
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config))
@@ -291,8 +330,26 @@ def main() -> None:
     data_cfg = cfg.get("data", {})
     dataset = str(data_cfg.get("dataset", "bps")).lower()
     input_repr = str(data_cfg.get("input_repr", "deltas"))
+    val_sequences: List[np.ndarray] = []
+    val_labels: List[int] = []
     if dataset == "jkupdd":
-        sequences, labels = load_sequences_jkupdd(cfg)
+        val_pieces = normalize_piece_list(data_cfg.get("val_pieces"))
+        pieces = normalize_piece_list(data_cfg.get("pieces"))
+        if not pieces:
+            pieces = list(experiments_jkupdd.jkupdd_corpus)
+        if val_pieces:
+            unknown = [p for p in val_pieces if p not in pieces]
+            if unknown:
+                raise ValueError(f"Unknown JKUPDD val pieces: {unknown}")
+            train_pieces = [p for p in pieces if p not in val_pieces]
+            if not train_pieces:
+                raise ValueError("Train split is empty after removing val_pieces.")
+            print(f"JKUPDD train pieces: {train_pieces}")
+            print(f"JKUPDD val pieces: {val_pieces}")
+            sequences, labels = load_sequences_jkupdd(cfg, pieces=train_pieces)
+            val_sequences, val_labels = load_sequences_jkupdd(cfg, pieces=val_pieces)
+        else:
+            sequences, labels = load_sequences_jkupdd(cfg, pieces=pieces)
     else:
         sequences, labels = load_sequences_bps(cfg)
     if not sequences:
@@ -304,10 +361,26 @@ def main() -> None:
         )
 
     augment_cfg = cfg.get("augment", {})
-    dataset = SequenceDataset(sequences, labels, model_cfg.max_len, augment_cfg, input_repr)
+    dataset = SequenceDataset(
+        sequences, labels, model_cfg.max_len, augment_cfg, input_repr
+    )
     train_cfg = cfg.get("train", {})
     batch_size = int(train_cfg.get("batch_size", 128))
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_batch
+    )
+    val_loader = None
+    if val_sequences:
+        val_batch_size = int(train_cfg.get("val_batch_size", batch_size))
+        val_dataset = SequenceDataset(
+            val_sequences, val_labels, model_cfg.max_len, {}, input_repr
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=val_batch_size,
+            shuffle=False,
+            collate_fn=collate_batch,
+        )
 
     device = str(train_cfg.get("device", "cpu"))
     model = LRSequenceEncoder(model_cfg).to(device)
@@ -320,7 +393,12 @@ def main() -> None:
     epochs = int(train_cfg.get("epochs", 10))
     log_every = int(train_cfg.get("log_every", 50))
 
+    patience = int(train_cfg.get("patience", 0))
+    min_delta = float(train_cfg.get("min_delta", 0.0))
     best_loss = None
+    best_epoch = None
+    best_val_loss = None
+    bad_epochs = 0
     step = 0
     for epoch in range(1, epochs + 1):
         model.train()
@@ -343,18 +421,51 @@ def main() -> None:
                 print(f"epoch {epoch} step {step} loss {avg:.4f}")
 
         epoch_loss = float(np.mean(running)) if running else float("inf")
-        print(f"epoch {epoch} mean loss {epoch_loss:.4f}")
+        val_loss = None
+        if val_loader is not None:
+            model.eval()
+            val_running = []
+            with torch.no_grad():
+                for x, mask, y in val_loader:
+                    x = x.to(device)
+                    mask = mask.to(device)
+                    y = y.to(device)
+                    z = model(x, mask)
+                    loss = supcon_loss(z, y, temperature)
+                    if loss is None:
+                        continue
+                    val_running.append(float(loss.item()))
+            model.train()
+            if val_running:
+                val_loss = float(np.mean(val_running))
+                best_val_loss = (
+                    val_loss if best_val_loss is None else min(best_val_loss, val_loss)
+                )
+        if val_loss is None:
+            print(f"epoch {epoch} mean loss {epoch_loss:.4f}")
+        else:
+            print(f"epoch {epoch} mean loss {epoch_loss:.4f} val loss {val_loss:.4f}")
         ckpt = {
             "config": asdict(model_cfg),
             "state_dict": model.state_dict(),
         }
         torch.save(ckpt, run_dir / "encoder_last.pt")
-        if best_loss is None or epoch_loss < best_loss:
-            best_loss = epoch_loss
+        metric_loss = val_loss if val_loss is not None else epoch_loss
+        if best_loss is None or metric_loss < (best_loss - min_delta):
+            best_loss = metric_loss
+            best_epoch = epoch
             torch.save(ckpt, run_dir / "encoder.pt")
+            bad_epochs = 0
+        elif val_loss is not None:
+            bad_epochs += 1
+            if patience > 0 and bad_epochs >= patience:
+                print(f"Early stopping at epoch {epoch} (best epoch {best_epoch}).")
+                break
 
     stats = {
         "best_loss": best_loss,
+        "best_epoch": best_epoch,
+        "best_val_loss": best_val_loss,
         "epochs": epochs,
         "num_sequences": len(sequences),
         "num_labels": len(set(labels)),

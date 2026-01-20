@@ -100,6 +100,8 @@ def load_patterns(patterns_dir: Path, keep_pieces=None, max_motifs=None, piece_p
     pieces = {}
     for path in sorted(patterns_dir.glob(piece_pattern)):
         data = json.loads(path.read_text())
+        if not isinstance(data, dict) or "patterns" not in data:
+            continue
         patterns = data.get("patterns", [])
         motifs = []
         for motif in patterns:

@@ -133,9 +133,13 @@ def main() -> None:
             raise ValueError("No predictions directory found in run_dir.")
         pred_dir = candidates[0]
 
-    metrics_path = pred_dir / "metrics_by_piece.json"
+    metrics_path = run_dir / "metrics_by_piece.json"
+    if not metrics_path.exists():
+        metrics_path = pred_dir / "metrics_by_piece.json"
     if metrics_path.exists():
-        best_piece, best_f1 = pick_best_piece_from_metrics(metrics_path, note_dir, pred_dir)
+        best_piece, best_f1 = pick_best_piece_from_metrics(
+            metrics_path, note_dir, pred_dir
+        )
         best_source = "metrics_by_piece"
     else:
         best_piece, best_f1 = pick_best_piece(pred_dir, label_dir, midi_dir)

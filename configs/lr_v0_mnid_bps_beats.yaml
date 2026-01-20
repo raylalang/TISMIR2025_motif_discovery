@@ -19,7 +19,7 @@ motif:
   lr_config: null
   lr_params:
     segment_unit: beat
-    beat_midi_dir: datasets/Beethoven_motif-main/motif_midi
+    beat_midi_dir: null
     scale_lengths: [2.0, 4.0, 8.0, 16.0]
     hop_ratio: 0.25
     min_notes: 3
