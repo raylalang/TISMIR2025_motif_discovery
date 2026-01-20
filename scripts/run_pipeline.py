@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 DEFAULT_BASE_CONFIG = "configs/csa_mnid_bps.yaml"
-DEFAULT_LR_CONFIG = "configs/lr_v0_nomnid_bps.yaml"
+DEFAULT_LR_CONFIG = "configs/lr_v0_nomnid_bps_beats.yaml"
 
 
 def parse_args() -> argparse.Namespace:
@@ -271,7 +271,9 @@ def main() -> None:
             step_name="MNID inference",
         )
     else:
-        if isinstance(mnid_cfg, dict) and mnid_cfg.get("output_csv_dir"):
+        # If MNID is skipped, prefer motif.csv_note_dir. Fall back to mnid.output_csv_dir
+        # only when motif.csv_note_dir is not provided.
+        if note_dir is None and isinstance(mnid_cfg, dict) and mnid_cfg.get("output_csv_dir"):
             note_dir = pathify(mnid_cfg.get("output_csv_dir"), repo_root)
         if note_dir is None:
             raise ValueError("csv_note_dir must be provided for motif-only mode or when mnid is null/skip.")

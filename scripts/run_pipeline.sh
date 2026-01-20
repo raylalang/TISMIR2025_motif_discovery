@@ -2,8 +2,8 @@
 # Thin wrapper around scripts/run_pipeline.py
 # Examples:
 # nohup bash CUDA VISIBLE_DEVICES=0 scripts/run_pipeline.sh --config configs/csa_mnid_bps.yaml > logs/run_pipeline_csa.log 2>&1 &
-# nohup bash scripts/run_pipeline.sh --config configs/lr_v0_nomnid_bps.yaml > logs/run_pipeline_lrv0.log 2>&1 &
-# nohup bash scripts/run_pipeline.sh --config configs/lr_v0_mnid_bps.yaml > logs/run_pipeline_lrv0.log 2>&1 &
+# nohup bash scripts/run_pipeline.sh --config configs/lr_v0_nomnid_bps_beats.yaml > logs/run_pipeline_lrv0.log 2>&1 &
+# nohup bash scripts/run_pipeline.sh --config configs/lr_v0_mnid_bps_beats.yaml > logs/run_pipeline_lrv0.log 2>&1 &
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ Usage: $0 [--config PATH] [--run-dir PATH] [--method NAME] [--motif-only] [--hel
 
 Defaults:
   --config configs/baseline_bps_csa.yaml (baseline)
-  --config configs/lr_v0_bps.yaml (if --motif-only and no config provided)
+  --config configs/lr_v0_nomnid_bps_beats.yaml (if --motif-only and no config provided)
 
 Notes:
   --motif-only skips MNID and uses csv_note_dir from config.

@@ -21,7 +21,7 @@ class LRConfig:
     scale_lengths: Sequence[float] = (2.0, 4.0, 8.0, 16.0)
     hop_ratio: float = 0.25
     min_notes: int = 3
-    segment_unit: str = "time"  # time | beat
+    segment_unit: str = "beat"  # beat (native) | beat (via MIDI mapping)
     beat_midi_dir: str | None = None
     retrieval: RetrievalConfig = RetrievalConfig()
     consolidate: ConsolidateConfig = ConsolidateConfig()
@@ -126,14 +126,16 @@ def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
     # Segments
     time_values = None
     if cfg.segment_unit.lower() == "beat":
-        if not cfg.beat_midi_dir:
-            raise ValueError("beat_midi_dir is required when segment_unit=beat.")
-        from .segments import note_onsets_to_beats
+        # Default behavior: interpret note onsets as beats.
+        # Optional: if beat_midi_dir is provided, map note onsets (seconds) onto beat indices
+        # using the MIDI tempo map.
+        if cfg.beat_midi_dir:
+            from .segments import note_onsets_to_beats
 
-        midi_path = Path(cfg.beat_midi_dir) / f"{piece_id}.mid"
-        if not midi_path.exists():
-            raise FileNotFoundError(f"Missing MIDI for beat segmentation: {midi_path}")
-        time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
+            midi_path = Path(cfg.beat_midi_dir) / f"{piece_id}.mid"
+            if not midi_path.exists():
+                raise FileNotFoundError(f"Missing MIDI for beat segmentation: {midi_path}")
+            time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
 
     segments = propose_segments(
         notes=notes,

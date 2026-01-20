@@ -1,23 +1,18 @@
-run_name: lr_v0_mnid_bps
+run_name: lr_v0_nomnid_bps_beats
 seed: 17
 output_root: runs
-mnid:
-  input_dir: datasets/Beethoven_motif-main/csv_notes_clean
-  bps_fh_dir: datasets/BPS_FH_Dataset
-  dict_file: MNID/data_creation/prepare_data/dict/CP.pkl
-  ckpt_dir: MNID/BPS_MNID_MI
-  cpu: false
-  skip: true
-  output_csv_dir: datasets/bps_mnid_mi
+mnid: null
 motif:
   method: LR_V0
-  csv_note_dir: datasets/bps_mnid_mi
+  csv_note_dir: datasets/Beethoven_motif-main/csv_notes_clean
   csv_label_dir: datasets/Beethoven_motif-main/csv_label
   motif_midi_dir: datasets/Beethoven_motif-main/motif_midi
   save_predictions: true
   num_workers: 4
   lr_config: null
   lr_params:
+    segment_unit: beat
+    beat_midi_dir: datasets/Beethoven_motif-main/motif_midi
     scale_lengths: [2.0, 4.0, 8.0, 16.0]
     hop_ratio: 0.25
     min_notes: 3

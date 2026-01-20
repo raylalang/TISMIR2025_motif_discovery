@@ -65,15 +65,15 @@ def main() -> None:
     parser.add_argument(
         "--segment-unit",
         type=str,
-        default="time",
+        default="beat",
         choices=["time", "beat"],
-        help="Segment in time or beat units (beat requires MIDI).",
+        help="Segment in native onset units (time) or beat units. For beat mode, MIDI is optional (needed only to map seconds->beats).",
     )
     parser.add_argument(
         "--midi-dir",
         type=str,
         default=None,
-        help="Directory of MIDI files for beat segmentation.",
+        help="Optional directory of MIDI files for beat segmentation (seconds->beats mapping).",
     )
     args = parser.parse_args()
 
@@ -99,12 +99,11 @@ def main() -> None:
         notes = load_all_notes(str(csv_path))
         time_values = None
         if args.segment_unit == "beat":
-            if not args.midi_dir:
-                raise ValueError("--midi-dir is required for beat segmentation.")
-            midi_path = Path(args.midi_dir) / f"{piece}.mid"
-            if not midi_path.exists():
-                raise FileNotFoundError(f"Missing MIDI: {midi_path}")
-            time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
+            if args.midi_dir:
+                midi_path = Path(args.midi_dir) / f"{piece}.mid"
+                if not midi_path.exists():
+                    raise FileNotFoundError(f"Missing MIDI: {midi_path}")
+                time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
         segments = propose_segments(
             notes=notes,
             piece_id=piece,
