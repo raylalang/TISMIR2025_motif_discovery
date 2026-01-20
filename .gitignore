@@ -5,3 +5,4 @@ MNID/BPS_MNID_MI
 *.log
 *.csv
 runs/
+.DS_Store

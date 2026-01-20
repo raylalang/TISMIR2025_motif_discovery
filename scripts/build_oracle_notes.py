@@ -15,10 +15,11 @@ from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 
-# Make motif_discovery imports available
+# Make motif_discovery imports available when running from repo root.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "motif_discovery"))
+sys.path.insert(0, str(REPO_ROOT / "motif_discovery" / "repeated_pattern_discovery"))
 
 from motif_discovery.experiments import load_all_motives  # type: ignore
 
