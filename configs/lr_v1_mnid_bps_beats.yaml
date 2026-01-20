@@ -19,7 +19,7 @@ motif:
   lr_config: null
   lr_params:
     embedding: learned
-    learned_ckpt: runs/lr_v1_train_bps_beats-YYYYMMDD-HHMMSS/encoder.pt
+    learned_ckpt: ../runs/lr_v1_train_jkupdd_beats-20260120-134333/encoder.pt
     learned_device: cuda
     learned_batch_size: 256
     learned_use_duration: false
@@ -27,7 +27,7 @@ motif:
     learned_time_bin: 0.125
     learned_time_normalize: true
     segment_unit: beat
-    beat_midi_dir: datasets/Beethoven_motif-main/motif_midi
+    beat_midi_dir: null
     scale_lengths: [2.0, 4.0, 8.0, 16.0]
     hop_ratio: 0.25
     min_notes: 3

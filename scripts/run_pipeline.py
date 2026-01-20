@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip MNID step; use provided csv_note_dir.",
     )
+    parser.add_argument(
+        "--no-audit",
+        action="store_true",
+        help="Skip audit_predictions and render_audit_gallery post-steps.",
+    )
     return parser.parse_args()
 
 
@@ -378,6 +383,50 @@ def main() -> None:
     print(summary)
     with log_path.open("a") as lf:
         lf.write("\n" + summary + "\n")
+
+    if not args.no_audit:
+        if not save_predictions_dir:
+            print("Audit skipped: save_predictions is false.")
+        else:
+            analysis_dir = run_dir / "analysis"
+            ensure_dir(analysis_dir)
+            audit_cmd = [
+                sys.executable,
+                str(repo_root / "scripts" / "audit_predictions.py"),
+                "--patterns_dir",
+                str(save_predictions_dir),
+                "--output_dir",
+                str(analysis_dir),
+                "--num_workers",
+                str(int(motif_cfg.get("num_workers", 1))),
+            ]
+            run_subprocess(
+                audit_cmd,
+                cwd=repo_root,
+                env=motif_env,
+                log_path=log_path,
+                step_name="Audit predictions",
+            )
+
+            gallery_cmd = [
+                sys.executable,
+                str(repo_root / "scripts" / "render_audit_gallery.py"),
+                "--audit",
+                str(analysis_dir / "audit_summary.json"),
+                "--patterns-dir",
+                str(save_predictions_dir),
+                "--csv-note-dir",
+                str(note_dir),
+                "--out-dir",
+                str(analysis_dir / "gallery"),
+            ]
+            run_subprocess(
+                gallery_cmd,
+                cwd=repo_root,
+                env=motif_env,
+                log_path=log_path,
+                step_name="Render audit gallery",
+            )
 
     # Cleanup temp lr config if created
     if lr_tmp_path and lr_tmp_path.exists():

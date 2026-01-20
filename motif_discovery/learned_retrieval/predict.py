@@ -1,6 +1,7 @@
 """
 End-to-end LR_V0 predictor: segments -> embeddings -> retrieval -> clustering -> consolidation -> occurrences.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +10,7 @@ from typing import List, Sequence, Tuple
 
 import numpy as np
 
-from .segments import Segment, propose_segments
+from .segments import Segment, note_onsets_to_beats, propose_segments
 from .embeddings import embed_segments, default_config as default_embed_cfg
 from .retrieval import RetrievalConfig, build_graph, build_similarity_matrix
 from .clustering import connected_components
@@ -55,25 +56,45 @@ def lr_config_from_dict(raw: dict) -> LRConfig:
     if "segment_unit" in raw:
         cfg.segment_unit = str(raw.get("segment_unit", cfg.segment_unit))
     if "beat_midi_dir" in raw:
-        cfg.beat_midi_dir = str(raw.get("beat_midi_dir", cfg.beat_midi_dir))
+        val = raw.get("beat_midi_dir", cfg.beat_midi_dir)
+        if val is None:
+            cfg.beat_midi_dir = None
+        elif isinstance(val, str) and val.strip().lower() in ("", "none", "null"):
+            cfg.beat_midi_dir = None
+        else:
+            cfg.beat_midi_dir = str(val)
     if "use_pitch_class" in raw:
         cfg.use_pitch_class = bool(raw.get("use_pitch_class", cfg.use_pitch_class))
     if "embedding" in raw:
         cfg.embedding = str(raw.get("embedding", cfg.embedding))
     if "learned_ckpt" in raw:
-        cfg.learned_ckpt = str(raw.get("learned_ckpt", cfg.learned_ckpt))
+        val = raw.get("learned_ckpt", cfg.learned_ckpt)
+        if val is None:
+            cfg.learned_ckpt = None
+        elif isinstance(val, str) and val.strip().lower() in ("", "none", "null"):
+            cfg.learned_ckpt = None
+        else:
+            cfg.learned_ckpt = str(val)
     if "learned_device" in raw:
         cfg.learned_device = str(raw.get("learned_device", cfg.learned_device))
     if "learned_batch_size" in raw:
-        cfg.learned_batch_size = int(raw.get("learned_batch_size", cfg.learned_batch_size))
+        cfg.learned_batch_size = int(
+            raw.get("learned_batch_size", cfg.learned_batch_size)
+        )
     if "learned_use_duration" in raw:
-        cfg.learned_use_duration = bool(raw.get("learned_use_duration", cfg.learned_use_duration))
+        cfg.learned_use_duration = bool(
+            raw.get("learned_use_duration", cfg.learned_use_duration)
+        )
     if "learned_input_repr" in raw:
-        cfg.learned_input_repr = str(raw.get("learned_input_repr", cfg.learned_input_repr))
+        cfg.learned_input_repr = str(
+            raw.get("learned_input_repr", cfg.learned_input_repr)
+        )
     if "learned_time_bin" in raw:
         cfg.learned_time_bin = float(raw.get("learned_time_bin", cfg.learned_time_bin))
     if "learned_time_normalize" in raw:
-        cfg.learned_time_normalize = bool(raw.get("learned_time_normalize", cfg.learned_time_normalize))
+        cfg.learned_time_normalize = bool(
+            raw.get("learned_time_normalize", cfg.learned_time_normalize)
+        )
     if "pitch_bins" in raw:
         cfg.pitch_bins = tuple(raw.get("pitch_bins", []))
     if "log_ioi_bins" in raw:
@@ -105,6 +126,9 @@ def lr_config_from_dict(raw: dict) -> LRConfig:
             cc.iou_threshold = float(craw.get("iou_threshold", cc.iou_threshold))
         if "score_mode" in craw:
             cc.score_mode = str(craw.get("score_mode", cc.score_mode))
+        if "overlap_threshold" in craw:
+            raw_val = craw.get("overlap_threshold")
+            cc.overlap_threshold = None if raw_val is None else float(raw_val)
         cfg.consolidate = cc
     if "same_scale_only" in raw:
         cfg.same_scale_only = bool(raw.get("same_scale_only", cfg.same_scale_only))
@@ -122,22 +146,21 @@ def segments_to_occurrences(
     return occs
 
 
-def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
-    # Segments
+def build_segments(notes: np.ndarray, piece_id: str, cfg: LRConfig) -> List[Segment]:
     time_values = None
     if cfg.segment_unit.lower() == "beat":
         # Default behavior: interpret note onsets as beats.
         # Optional: if beat_midi_dir is provided, map note onsets (seconds) onto beat indices
         # using the MIDI tempo map.
         if cfg.beat_midi_dir:
-            from .segments import note_onsets_to_beats
-
             midi_path = Path(cfg.beat_midi_dir) / f"{piece_id}.mid"
             if not midi_path.exists():
-                raise FileNotFoundError(f"Missing MIDI for beat segmentation: {midi_path}")
+                raise FileNotFoundError(
+                    f"Missing MIDI for beat segmentation: {midi_path}"
+                )
             time_values = note_onsets_to_beats(notes["onset"], str(midi_path))
 
-    segments = propose_segments(
+    return propose_segments(
         notes=notes,
         piece_id=piece_id,
         scale_lengths=cfg.scale_lengths,
@@ -145,18 +168,30 @@ def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
         min_notes=cfg.min_notes,
         time_values=time_values,
     )
-    # Embeddings
-    if cfg.embedding.lower() == "learned":
-        if not cfg.learned_ckpt:
-            raise ValueError("learned_ckpt is required when embedding=learned.")
-        from .learned_embeddings import embed_segments_learned, load_learned_encoder
 
-        model, _enc_cfg = load_learned_encoder(cfg.learned_ckpt, cfg.learned_device)
+
+def embed_segments_for_cfg(
+    notes: np.ndarray,
+    segments: Sequence[Segment],
+    cfg: LRConfig,
+    learned_model: object | None = None,
+) -> Tuple[np.ndarray, np.ndarray, Sequence[Segment]]:
+    if cfg.embedding.lower() == "learned":
+        if learned_model is None:
+            if not cfg.learned_ckpt:
+                raise ValueError("learned_ckpt is required when embedding=learned.")
+            from .learned_embeddings import load_learned_encoder
+
+            learned_model, _enc_cfg = load_learned_encoder(
+                cfg.learned_ckpt, cfg.learned_device
+            )
+        from .learned_embeddings import embed_segments_learned
+
         use_segment_bounds = cfg.segment_unit.lower() != "beat"
-        embeddings, tempos, segments = embed_segments_learned(
+        return embed_segments_learned(
             notes,
             segments,
-            model,
+            learned_model,
             device=cfg.learned_device,
             batch_size=cfg.learned_batch_size,
             use_duration=cfg.learned_use_duration,
@@ -165,20 +200,28 @@ def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
             time_normalize=cfg.learned_time_normalize,
             use_segment_bounds=use_segment_bounds,
         )
-    else:
-        emb_cfg = default_embed_cfg()
-        if cfg.pitch_bins:
-            emb_cfg.pitch_bins = cfg.pitch_bins
-        if cfg.log_ioi_bins:
-            emb_cfg.log_ioi_bins = cfg.log_ioi_bins
-        if cfg.ngram_orders:
-            emb_cfg.ngram_orders = cfg.ngram_orders
-        if cfg.max_skip is not None:
-            emb_cfg.max_skip = cfg.max_skip
-        if cfg.ngram_bins is not None and cfg.ngram_bins > 0:
-            emb_cfg.ngram_bins = cfg.ngram_bins
-        embeddings, tempos, segments = embed_segments(notes, segments, emb_cfg)
 
+    emb_cfg = default_embed_cfg()
+    if cfg.pitch_bins:
+        emb_cfg.pitch_bins = cfg.pitch_bins
+    if cfg.log_ioi_bins:
+        emb_cfg.log_ioi_bins = cfg.log_ioi_bins
+    if cfg.ngram_orders:
+        emb_cfg.ngram_orders = cfg.ngram_orders
+    if cfg.max_skip is not None:
+        emb_cfg.max_skip = cfg.max_skip
+    if cfg.ngram_bins is not None and cfg.ngram_bins > 0:
+        emb_cfg.ngram_bins = cfg.ngram_bins
+    return embed_segments(notes, segments, emb_cfg)
+
+
+def predict_piece_from_embeddings(
+    notes: np.ndarray,
+    segments: Sequence[Segment],
+    embeddings: np.ndarray,
+    tempos: np.ndarray,
+    cfg: LRConfig,
+) -> List[List[List[Tuple[float, int]]]]:
     # Retrieval graph
     cfg.retrieval.same_scale_only = cfg.same_scale_only or cfg.retrieval.same_scale_only
     graph = build_graph(segments, embeddings, tempos, cfg.retrieval)
@@ -196,3 +239,9 @@ def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
         occs = segments_to_occurrences(kept_segments, notes)
         motifs.append(occs)
     return motifs
+
+
+def predict_piece(notes: np.ndarray, piece_id: str, cfg: LRConfig):
+    segments = build_segments(notes, piece_id, cfg)
+    embeddings, tempos, segments = embed_segments_for_cfg(notes, segments, cfg)
+    return predict_piece_from_embeddings(notes, segments, embeddings, tempos, cfg)

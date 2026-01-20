@@ -221,9 +221,12 @@ def _format_metrics(P_est, R_est, F_est, P_occ, R_occ, F_occ, P_thr, R_thr, F_th
 def save_piece_metrics(metrics_by_piece, save_dir, filename="metrics_by_piece.json"):
     if save_dir is None:
         return
-    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    out_dir = Path(save_dir)
+    if out_dir.name == "motifs":
+        out_dir = out_dir.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
     payload = {"pieces": metrics_by_piece}
-    out_path = Path(save_dir) / filename
+    out_path = out_dir / filename
     with open(out_path, "w") as f:
         json.dump(payload, f, indent=2)
 
@@ -731,6 +734,126 @@ def SIATEC_CS(pruned_csv_note_dir, csv_label_dir, motif_midi_dir, save_dir=None)
     save_piece_metrics(piece_metrics, save_dir)
 
 
+def _load_lr_config(lr_config_path):
+    from motif_discovery.learned_retrieval.predict import LRConfig, lr_config_from_dict  # type: ignore
+
+    cfg = LRConfig()
+    if not lr_config_path:
+        return cfg
+    cfg_path = Path(lr_config_path).expanduser()
+    raw = None
+    if cfg_path.suffix.lower() == ".json":
+        raw = json.loads(cfg_path.read_text())
+    else:
+        if yaml is None:
+            raise ValueError(f"Install PyYAML or provide JSON for lr_config: {cfg_path}")
+        raw = yaml.safe_load(cfg_path.read_text())
+    if raw is None:
+        raise ValueError(f"Failed to parse lr_config at {cfg_path}")
+    return lr_config_from_dict(raw)
+
+
+def _resolve_lr_cache_dirs(save_dir):
+    env_dir = os.environ.get("LR_CACHE_DIR")
+    if env_dir:
+        base = Path(env_dir).expanduser()
+    elif save_dir:
+        base = Path(save_dir).resolve().parent / "lr_cache"
+    else:
+        base = Path.cwd() / "lr_cache"
+    segments_dir = base / "segments"
+    embeddings_dir = base / "embeddings"
+    segments_dir.mkdir(parents=True, exist_ok=True)
+    embeddings_dir.mkdir(parents=True, exist_ok=True)
+    return segments_dir, embeddings_dir
+
+
+def _save_segments_json(path, piece, segments, meta):
+    payload = {
+        "piece": piece,
+        "num_segments": len(segments),
+        **meta,
+        "segments": [s.to_dict() for s in segments],
+    }
+    path.write_text(json.dumps(payload, indent=2))
+
+
+def _load_segments_json(path):
+    from motif_discovery.learned_retrieval.segments import Segment  # type: ignore
+
+    data = json.loads(path.read_text())
+    raw_segments = data.get("segments", data if isinstance(data, list) else [])
+    segments = []
+    for s in raw_segments:
+        segments.append(
+            Segment(
+                piece_id=s["piece_id"],
+                start=float(s["start"]),
+                end=float(s["end"]),
+                scale_id=int(s["scale_id"]),
+                note_indices=list(s["note_indices"]),
+                segment_id=s["segment_id"],
+            )
+        )
+    return segments
+
+
+def _build_lr_cache(
+    pieces,
+    pruned_csv_note_dir,
+    lr_cfg,
+    segments_dir,
+    embeddings_dir,
+):
+    from motif_discovery.learned_retrieval.predict import (  # type: ignore
+        build_segments,
+        embed_segments_for_cfg,
+    )
+
+    learned_model = None
+    if lr_cfg.embedding.lower() == "learned":
+        if not lr_cfg.learned_ckpt:
+            raise ValueError("learned_ckpt is required when embedding=learned.")
+        from motif_discovery.learned_retrieval.learned_embeddings import (  # type: ignore
+            load_learned_encoder,
+        )
+
+        learned_model, _enc_cfg = load_learned_encoder(
+            lr_cfg.learned_ckpt, lr_cfg.learned_device
+        )
+
+    meta = {
+        "scale_lengths": list(lr_cfg.scale_lengths),
+        "hop_ratio": float(lr_cfg.hop_ratio),
+        "min_notes": int(lr_cfg.min_notes),
+        "segment_unit": str(lr_cfg.segment_unit),
+        "embedding": str(lr_cfg.embedding),
+    }
+
+    for piece in pieces:
+        note_path = Path(pruned_csv_note_dir) / f"{piece}.csv"
+        if not note_path.exists():
+            raise FileNotFoundError(f"Missing note CSV: {note_path}")
+        notes = load_all_notes(str(note_path))
+        segments = build_segments(notes, piece, lr_cfg)
+        embeddings, tempos, segments = embed_segments_for_cfg(
+            notes, segments, lr_cfg, learned_model=learned_model
+        )
+
+        seg_path = segments_dir / f"{piece}.json"
+        emb_path = embeddings_dir / f"{piece}.npz"
+        _save_segments_json(seg_path, piece, segments, meta)
+        np.savez_compressed(
+            emb_path,
+            embeddings=embeddings,
+            tempos=tempos,
+            segment_ids=[s.segment_id for s in segments],
+        )
+        print(
+            f"{piece}: segments={len(segments)} embeddings={embeddings.shape} -> {emb_path}"
+        )
+
+
 def _lr_v0_process(
     piece: str,
     pruned_csv_note_dir: str,
@@ -738,25 +861,15 @@ def _lr_v0_process(
     motif_midi_dir: str,
     save_dir: str,
     lr_config_path: str,
+    segments_dir: str,
+    embeddings_dir: str,
 ):
     """Worker to run LR_V0 on one piece (used for multiprocessing)."""
-    from motif_discovery.learned_retrieval.predict import LRConfig, lr_config_from_dict, predict_piece  # type: ignore
+    from motif_discovery.learned_retrieval.predict import (  # type: ignore
+        predict_piece_from_embeddings,
+    )
 
-    cfg = LRConfig()
-    if lr_config_path:
-        cfg_path = Path(lr_config_path).expanduser()
-        raw = None
-        if cfg_path.suffix.lower() == ".json":
-            raw = json.loads(cfg_path.read_text())
-        else:
-            if yaml is None:
-                raise ValueError(
-                    f"Install PyYAML or provide JSON for lr_config: {cfg_path}"
-                )
-            raw = yaml.safe_load(cfg_path.read_text())
-        if raw is None:
-            raise ValueError(f"Failed to parse lr_config at {cfg_path}")
-        cfg = lr_config_from_dict(raw)
+    cfg = _load_lr_config(lr_config_path)
 
     filename_csv = os.path.join(csv_label_dir, piece + ".csv")
     filename_midi = os.path.join(motif_midi_dir, piece + ".mid")
@@ -769,8 +882,19 @@ def _lr_v0_process(
     filename_eval = os.path.join(pruned_csv_note_dir, piece + ".csv")
     notes = load_all_notes(filename_eval)
 
+    seg_path = Path(segments_dir) / f"{piece}.json"
+    emb_path = Path(embeddings_dir) / f"{piece}.npz"
+    segments = _load_segments_json(seg_path)
+    with np.load(emb_path) as data:
+        embeddings = data["embeddings"]
+        tempos = data["tempos"]
+    if len(segments) != embeddings.shape[0]:
+        raise ValueError(
+            f"Segment/embedding mismatch for {piece}: {len(segments)} vs {embeddings.shape[0]}"
+        )
+
     start_time = time.time()
-    patterns_est = predict_piece(notes, piece, cfg)
+    patterns_est = predict_piece_from_embeddings(notes, segments, embeddings, tempos, cfg)
     runtime = time.time() - start_time
 
     save_patterns(piece, patterns_est, save_dir)
@@ -806,23 +930,7 @@ def LR_V0(
     Learned retrieval v0: segments -> embeddings -> retrieval -> clustering -> consolidation.
     """
     print("******* LR_V0 *******")
-    from motif_discovery.learned_retrieval.predict import (
-        LRConfig,
-        lr_config_from_dict,
-        predict_piece,
-    )  # lazy import to avoid extra deps elsewhere
-
-    cfg = LRConfig()
-    if lr_config_path:
-        cfg_path = Path(lr_config_path).expanduser()
-        raw = None
-        if cfg_path.suffix.lower() == ".json":
-            raw = json.loads(cfg_path.read_text())
-        else:
-            raw = yaml.safe_load(cfg_path.read_text())
-        if raw is None:
-            raise ValueError(f"Failed to parse lr_config at {cfg_path}")
-        cfg = lr_config_from_dict(raw)
+    cfg = _load_lr_config(lr_config_path)
 
     all_P_est, all_R_est, all_F_est = [], [], []
     all_P_occ, all_R_occ, all_F_occ = [], [], []
@@ -832,9 +940,56 @@ def LR_V0(
 
     # Determine worker count (optional)
     pieces = [str(i).zfill(2) + "-1" for i in range(1, 33)]
+    segments_dir, embeddings_dir = _resolve_lr_cache_dirs(save_dir)
+    print(f"Building LR cache in {segments_dir.parent}")
+    _build_lr_cache(pieces, pruned_csv_note_dir, cfg, segments_dir, embeddings_dir)
+
+    def record_result(piece, res):
+        nonlocal runtime
+        (
+            F_est,
+            P_est,
+            R_est,
+            F_occ,
+            P_occ,
+            R_occ,
+            F_thr,
+            P_thr,
+            R_thr,
+            runtime_piece,
+            _,
+            _,
+        ) = res
+        runtime += runtime_piece
+        piece_metrics[piece] = {
+            "metrics": _format_metrics(
+                P_est,
+                R_est,
+                F_est,
+                P_occ,
+                R_occ,
+                F_occ,
+                P_thr,
+                R_thr,
+                F_thr,
+            ),
+            "num_motifs": int(res[10]),
+            "num_ref_motifs": int(res[11]),
+            "runtime_sec": float(runtime_piece),
+        }
+        all_P_est.append(P_est)
+        all_R_est.append(R_est)
+        all_F_est.append(F_est)
+        all_P_occ.append(P_occ)
+        all_R_occ.append(R_occ)
+        all_F_occ.append(F_occ)
+        all_P_thr.append(P_thr)
+        all_R_thr.append(R_thr)
+        all_F_thr.append(F_thr)
+        print(f"{piece}: est P {P_est:.4f}, R {R_est:.4f}, F {F_est:.4f}")
 
     if num_workers > 1:
-        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from concurrent.futures import ProcessPoolExecutor
 
         tasks = []
         with ProcessPoolExecutor(max_workers=num_workers) as ex:
@@ -847,109 +1002,26 @@ def LR_V0(
                     motif_midi_dir,
                     save_dir if save_dir else "",
                     lr_config_path if lr_config_path else "",
+                    str(segments_dir),
+                    str(embeddings_dir),
                 )
                 tasks.append((piece, fut))
             for piece, fut in tasks:
                 res = fut.result()
-                (
-                    F_est,
-                    P_est,
-                    R_est,
-                    F_occ,
-                    P_occ,
-                    R_occ,
-                    F_thr,
-                    P_thr,
-                    R_thr,
-                    runtime_piece,
-                    _,
-                    _,
-                ) = res
-                runtime += runtime_piece
-                piece_metrics[piece] = {
-                    "metrics": _format_metrics(
-                        P_est,
-                        R_est,
-                        F_est,
-                        P_occ,
-                        R_occ,
-                        F_occ,
-                        P_thr,
-                        R_thr,
-                        F_thr,
-                    ),
-                    "num_motifs": int(res[10]),
-                    "num_ref_motifs": int(res[11]),
-                    "runtime_sec": float(runtime_piece),
-                }
-                all_P_est.append(P_est)
-                all_R_est.append(R_est)
-                all_F_est.append(F_est)
-                all_P_occ.append(P_occ)
-                all_R_occ.append(R_occ)
-                all_F_occ.append(F_occ)
-                all_P_thr.append(P_thr)
-                all_R_thr.append(R_thr)
-                all_F_thr.append(F_thr)
-                print(f"{piece}: est P {P_est:.4f}, R {R_est:.4f}, F {F_est:.4f}")
+                record_result(piece, res)
     else:
         for piece in pieces:
-            print("piece", piece)
-
-            filename_csv = os.path.join(csv_label_dir, piece + ".csv")
-            filename_midi = os.path.join(motif_midi_dir, piece + ".mid")
-            motives = load_all_motives(filename_csv, filename_midi)
-
-            patterns_ref = [
-                [list(occur[["onset", "pitch"]]) for occur in motif]
-                for motif in motives.values()
-            ]
-
-            filename_eval = os.path.join(pruned_csv_note_dir, piece + ".csv")
-            notes = load_all_notes(filename_eval)
-
-            start_time = time.time()
-            patterns_est = predict_piece(notes, piece, cfg)
-            runtime_piece = time.time() - start_time
-            runtime += runtime_piece
-
-            save_patterns(piece, patterns_est, save_dir)
-
-            elp = time.time()
-            F_est, P_est, R_est = establishment_FPR(patterns_ref, patterns_est)
-            F_occ, P_occ, R_occ = occurrence_FPR(patterns_ref, patterns_est)
-            F_thr, P_thr, R_thr = three_layer_FPR(patterns_ref, patterns_est)
-            print("est P %.4f, R %.4f, F %.4f" % (P_est, R_est, F_est))
-            print("occ P %.4f, R %.4f, F %.4f" % (P_occ, R_occ, F_occ))
-            print("thr P %.4f, R %.4f, F %.4f" % (P_thr, R_thr, F_thr))
-            print("elapsed time, eval %.2f sec" % (time.time() - elp))
-
-            piece_metrics[piece] = {
-                "metrics": _format_metrics(
-                    P_est,
-                    R_est,
-                    F_est,
-                    P_occ,
-                    R_occ,
-                    F_occ,
-                    P_thr,
-                    R_thr,
-                    F_thr,
-                ),
-                "num_motifs": len(patterns_est),
-                "num_ref_motifs": len(patterns_ref),
-                "runtime_sec": float(runtime_piece),
-            }
-
-            all_P_est.append(P_est)
-            all_R_est.append(R_est)
-            all_F_est.append(F_est)
-            all_P_occ.append(P_occ)
-            all_R_occ.append(R_occ)
-            all_F_occ.append(F_occ)
-            all_P_thr.append(P_thr)
-            all_R_thr.append(R_thr)
-            all_F_thr.append(F_thr)
+            res = _lr_v0_process(
+                piece,
+                pruned_csv_note_dir,
+                csv_label_dir,
+                motif_midi_dir,
+                save_dir if save_dir else "",
+                lr_config_path if lr_config_path else "",
+                str(segments_dir),
+                str(embeddings_dir),
+            )
+            record_result(piece, res)
 
     mean_P_est = np.mean(all_P_est)
     mean_R_est = np.mean(all_R_est)

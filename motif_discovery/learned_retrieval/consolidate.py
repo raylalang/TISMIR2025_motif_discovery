@@ -12,9 +12,16 @@ from .segments import Segment
 from .retrieval import time_iou
 
 
+def overlap_ratio(a: Segment, b: Segment) -> float:
+    inter = max(0.0, min(a.end, b.end) - max(a.start, b.start))
+    denom = min(a.end - a.start, b.end - b.start)
+    return inter / denom if denom > 0 else 0.0
+
+
 @dataclass
 class ConsolidateConfig:
     iou_threshold: float = 0.3
+    overlap_threshold: float | None = None
     score_mode: str = "centrality"  # or "note_count"
 
 
@@ -46,7 +53,12 @@ def consolidate_cluster(
     for idx, _ in scores:
         keep = True
         for k in kept:
-            if time_iou(segments[idx], segments[k]) >= cfg.iou_threshold:
+            iou = time_iou(segments[idx], segments[k])
+            contain = overlap_ratio(segments[idx], segments[k])
+            if iou >= cfg.iou_threshold:
+                keep = False
+                break
+            if cfg.overlap_threshold is not None and contain >= cfg.overlap_threshold:
                 keep = False
                 break
         if keep:
